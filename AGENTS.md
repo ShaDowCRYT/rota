@@ -142,5 +142,6 @@ Stop and ask. Never guess.
 - Never change a locked choice. Never weaken or skip a rule in section 3 to make something work.
 - Never write a workaround, hack, or tangled code to get past a problem. Stop and explain the problem instead.
 - Never disable a check, test, or type rule to make a build pass.
+- The only approved exception is `"skipLibCheck": true` in the server tsconfig (decision 0004). Never add another one without asking.
 - For anything the PRD or this file does not settle, give at most 2 options with one recommendation and wait for the developer's answer. Then record it in `docs/decisions/`.
 - If two rules conflict, or the PRD is unclear, stop and say exactly which lines conflict.

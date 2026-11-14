@@ -15,3 +15,15 @@ ESLint was also added to the project to help identify common coding mistakes. It
 The main reason for these changes is to make the application easier to test and maintain. Separating the app from the server startup allows tests to run without automatically starting the main server.
 
 One small ESLint customization was added to ignore unused parameters that start with an underscore. This helps avoid unnecessary warnings when a parameter is intentionally not used.
+
+## 2026-11-14: Phase 0, database pool and readiness
+
+The environment settings were updated to require a PostgreSQL database URL and a pool-size number. A database connection pool was also created to manage database connections properly.
+
+Drizzle was connected to the PostgreSQL pool through `db/client.ts`. The pool also has timeouts and error handling to help manage connection problems.
+
+The health checks were improved. The `/health` route checks if the server is running, while `/health/ready` checks if the database is available by running a simple query. The pool size comes from `DB_POOL_MAX`, which defaults to 10 and allows at most 20.
+
+If the database check fails, the server logs the actual error but returns a simple 503 error message to the user. On success, it returns `{"status":"ok","database":"ok"}`.
+
+Finally, the server was updated to shut down properly when stopped. It stops accepting new requests, closes database connections, and exits safely. This helps prevent connections from being left open.
