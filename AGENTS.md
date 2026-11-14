@@ -20,7 +20,7 @@ Never change, swap, upgrade, or "improve" these.
 - App: React Native with Expo. Android EAS development build (not Expo Go). FlashList, expo-secure-store, expo-notifications, TanStack Query (server state), Zustand (client state).
 - Server: Node.js LTS, Express, TypeScript (strict mode), Zod.
 - Database: PostgreSQL with pooled connections. Sharding simulation = two separate PostgreSQL databases, routed by a hash of `team_id`.
-- Redis for cache, rate limits, and locks. BullMQ for jobs.
+- Redis for cache, rate limits, and locks. BullMQ for jobs. Local development uses Redis in Docker (docker-compose.yml). The deployed backend will use Upstash (TLS, rediss://).
 - Tests: Vitest. Load tests: k6. Error tracking: Sentry on app and server.
 - Data model: use the tables and fields in PRD section 7. Do not rename or redesign them. The only approved addition is the `user_teams` lookup table.
 - Plans, in cents. Never change these numbers:
