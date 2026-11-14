@@ -1,10 +1,18 @@
 import type { Server } from "node:http";
 
+import type { Express } from "express";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { app } from "./app.js";
+import { createApp, type DatabaseCheck } from "./app.js";
 
-function startServer(): Promise<{ server: Server; baseUrl: string }> {
+const databaseOk: DatabaseCheck = () => Promise.resolve();
+const databaseFailureMessage = "database password is wrong";
+const databaseDown: DatabaseCheck = () =>
+  Promise.reject(new Error(databaseFailureMessage));
+
+function startServer(
+  app: Express,
+): Promise<{ server: Server; baseUrl: string }> {
   return new Promise((resolve, reject) => {
     const server = app.listen(0, "127.0.0.1", () => {
       const address = server.address();
@@ -17,7 +25,7 @@ function startServer(): Promise<{ server: Server; baseUrl: string }> {
   });
 }
 
-describe("GET /health", () => {
+describe("health routes", () => {
   let server: Server | undefined;
 
   afterEach(async () => {
@@ -29,13 +37,35 @@ describe("GET /health", () => {
     });
   });
 
-  it("returns 200 and status ok", async () => {
-    const started = await startServer();
+  it("GET /health returns 200 and status ok", async () => {
+    const started = await startServer(createApp(databaseOk));
     server = started.server;
 
     const response = await fetch(`${started.baseUrl}/health`);
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ status: "ok" });
+  });
+
+  it("GET /health/ready returns 200 when the database check succeeds", async () => {
+    const started = await startServer(createApp(databaseOk));
+    server = started.server;
+
+    const response = await fetch(`${started.baseUrl}/health/ready`);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "ok", database: "ok" });
+  });
+
+  it("GET /health/ready returns 503 without leaking the error", async () => {
+    const started = await startServer(createApp(databaseDown));
+    server = started.server;
+
+    const response = await fetch(`${started.baseUrl}/health/ready`);
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body).toEqual({ status: "error", database: "unavailable" });
+    expect(JSON.stringify(body)).not.toContain(databaseFailureMessage);
   });
 });

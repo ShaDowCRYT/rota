@@ -12,10 +12,43 @@ dotenv.config({
   quiet: true,
 });
 
+const emptyToUndefined = (value: unknown): unknown =>
+  value === "" ? undefined : value;
+
+function isPostgresUrl(value: string): boolean {
+  const hasPostgresScheme =
+    value.startsWith("postgres://") || value.startsWith("postgresql://");
+  if (!hasPostgresScheme) {
+    return false;
+  }
+
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const envSchema = z.object({
   PORT: z.preprocess(
-    (value) => (value === "" ? undefined : value),
+    emptyToUndefined,
     z.coerce.number().int().min(1).max(65535).default(3000),
+  ),
+  DATABASE_URL: z.preprocess(
+    (value) => (value === undefined ? "" : value),
+    z
+      .string()
+      .trim()
+      .min(1, "DATABASE_URL is required")
+      .refine(
+        isPostgresUrl,
+        "DATABASE_URL must be a valid postgres:// or postgresql:// URL",
+      ),
+  ),
+  DB_POOL_MAX: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().min(1).max(20).default(10),
   ),
 });
 
