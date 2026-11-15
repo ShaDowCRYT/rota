@@ -39,3 +39,15 @@ The shutdown process was also updated. When the server is stopped, it first stop
 Tests were added to check different situations where Redis and PostgreSQL are either working or unavailable. Fake functions were used, so the tests do not need real database or Redis connections.
 
 Finally, the environment secrets were kept safe, and no sensitive information was exposed. Docker Redis was started and left running, but nothing was committed to Git.
+
+## 2026-11-15: Phase 0, continuous integration
+
+The Express app was updated to hide the X-Powered-By header. A test was also added to make sure the header is no longer sent by the server.
+
+A GitHub Actions workflow was created to automatically check the code whenever changes are pushed to the main branch or a pull request is made.
+
+The workflow runs several checks, including type-checking, linting, testing, building the app, and checking production dependencies for security issues.
+
+The CI setup uses Node.js 24 and the committed lockfile to ensure dependencies are installed correctly. It also uses read-only permissions for better security.
+
+Finally, the workflow does not require secrets or real database and Redis services to run. A decision was also documented to explain why this setup was chosen.
