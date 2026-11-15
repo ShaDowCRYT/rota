@@ -51,3 +51,15 @@ The workflow runs several checks, including type-checking, linting, testing, bui
 The CI setup uses Node.js 24 and the committed lockfile to ensure dependencies are installed correctly. It also uses read-only permissions for better security.
 
 Finally, the workflow does not require secrets or real database and Redis services to run. A decision was also documented to explain why this setup was chosen.
+
+## 2026-11-15: Phase 0, Sentry error tracking
+
+The server can now send error reports to Sentry when a Sentry DSN is provided. If no DSN is configured, Sentry will not be activated.
+
+To protect users' privacy, sensitive information such as request bodies, cookies, and login details is removed before error reports are sent. Users only receive a simple error message, while the full error details are saved in the server logs and Sentry.
+
+Sentry's Express handler was added after the routes are defined, so errors passed through the app are captured before the final generic error handler responds.
+
+Tests were added using a fake Sentry connection. This ensures that errors are tested without sending real reports to Sentry.
+
+Finally, the setup was tested, and a decision was documented to explain how error reporting works while keeping sensitive information safe.
