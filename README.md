@@ -6,9 +6,9 @@ A shift scheduling app for small teams, with seat-based billing.
 
 **Status:** In development. Phase 0 (foundations) is in progress.
 
-Done so far: Express server with health checks, PostgreSQL connection pool, Redis connection, automated tests, and CI.
+Done so far: Express server with health checks, PostgreSQL connection pool, Redis connection, automated tests, CI, and optional Sentry error tracking.
 
-Still to do in Phase 0: Sentry error tracking and the Expo mobile app shell.
+Still to do in Phase 0: the Expo mobile app shell.
 
 ## Demo
 
@@ -23,13 +23,14 @@ Built so far:
 - Node.js LTS, Express, TypeScript (strict mode), Zod
 - PostgreSQL with pooled connections, using Drizzle ORM with the `pg` driver
 - Redis (Docker for local development)
+- Sentry error tracking for the server
 - Vitest, ESLint, and GitHub Actions CI
 
 Planned:
 - React Native with Expo (Android development build)
 - BullMQ for background jobs
 - Flutterwave in test mode for payments
-- Sentry for error tracking, and k6 for load tests
+- k6 for load tests
 
 ## How to run the server locally
 
