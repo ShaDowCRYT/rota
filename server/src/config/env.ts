@@ -15,10 +15,8 @@ dotenv.config({
 const emptyToUndefined = (value: unknown): unknown =>
   value === "" ? undefined : value;
 
-function isPostgresUrl(value: string): boolean {
-  const hasPostgresScheme =
-    value.startsWith("postgres://") || value.startsWith("postgresql://");
-  if (!hasPostgresScheme) {
+function hasUrlScheme(value: string, schemes: readonly string[]): boolean {
+  if (!schemes.some((scheme) => value.startsWith(scheme))) {
     return false;
   }
 
@@ -28,6 +26,14 @@ function isPostgresUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isPostgresUrl(value: string): boolean {
+  return hasUrlScheme(value, ["postgres://", "postgresql://"]);
+}
+
+function isRedisUrl(value: string): boolean {
+  return hasUrlScheme(value, ["redis://", "rediss://"]);
 }
 
 const envSchema = z.object({
@@ -44,6 +50,17 @@ const envSchema = z.object({
       .refine(
         isPostgresUrl,
         "DATABASE_URL must be a valid postgres:// or postgresql:// URL",
+      ),
+  ),
+  REDIS_URL: z.preprocess(
+    (value) => (value === undefined ? "" : value),
+    z
+      .string()
+      .trim()
+      .min(1, "REDIS_URL is required")
+      .refine(
+        isRedisUrl,
+        "REDIS_URL must be a valid redis:// or rediss:// URL",
       ),
   ),
   DB_POOL_MAX: z.preprocess(

@@ -3,8 +3,9 @@ import { env } from "./config/env.js";
 import { checkDatabase, closePool } from "./db/pool.js";
 import { getErrorMessage } from "./lib/errors.js";
 import { logger } from "./lib/logger.js";
+import { checkRedis, closeRedis } from "./lib/redis.js";
 
-const app = createApp(checkDatabase);
+const app = createApp(checkDatabase, checkRedis);
 
 const server = app.listen(env.PORT, () => {
   logger.info("server listening", { port: env.PORT });
@@ -27,6 +28,15 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
     });
   } catch (error) {
     logger.error("failed to close http server", {
+      error: getErrorMessage(error),
+    });
+    exitCode = 1;
+  }
+
+  try {
+    await closeRedis();
+  } catch (error) {
+    logger.error("failed to close redis", {
       error: getErrorMessage(error),
     });
     exitCode = 1;
