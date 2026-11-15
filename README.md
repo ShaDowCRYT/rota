@@ -4,7 +4,11 @@ A shift scheduling app for small teams, with seat-based billing.
 
 [![CI](https://github.com/ShaDowCRYT/rota/actions/workflows/ci.yml/badge.svg)](https://github.com/ShaDowCRYT/rota/actions/workflows/ci.yml)
 
-**Status:** In development. Phase 0 (foundations) is complete: server, PostgreSQL pool, Redis, CI.
+**Status:** In development. Phase 0 (foundations) is in progress.
+
+Done so far: Express server with health checks, PostgreSQL connection pool, Redis connection, automated tests, and CI.
+
+Still to do in Phase 0: Sentry error tracking and the Expo mobile app shell.
 
 ## Demo
 
@@ -15,22 +19,26 @@ A shift scheduling app for small teams, with seat-based billing.
 
 ## Tech stack
 
-- React Native with Expo, Android EAS development build
+Built so far:
 - Node.js LTS, Express, TypeScript (strict mode), Zod
-- PostgreSQL with pooled connections
-- Redis for cache, rate limits, and locks
-- BullMQ for jobs
-- Drizzle ORM with the `pg` driver
-- Vitest for tests, k6 for load tests
-- Sentry for error tracking on the app and the server
+- PostgreSQL with pooled connections, using Drizzle ORM with the `pg` driver
+- Redis (Docker for local development)
+- Vitest, ESLint, and GitHub Actions CI
+
+Planned:
+- React Native with Expo (Android development build)
+- BullMQ for background jobs
+- Flutterwave in test mode for payments
+- Sentry for error tracking, and k6 for load tests
 
 ## How to run the server locally
 
-1. Install Node.js (LTS).
+1. Install Node.js (LTS) and Docker.
 2. Copy `.env.example` to `.env`.
 3. Start Redis with Docker: `docker compose up -d`.
 4. Set `REDIS_URL=redis://127.0.0.1:6379` in `.env`.
 5. Add a Neon `DATABASE_URL` to `.env`.
+   Optional: set `DB_POOL_MAX` (defaults to 10).
 6. From the repository root, run:
 
    ```bash
