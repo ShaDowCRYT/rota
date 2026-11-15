@@ -37,6 +37,10 @@ function isRedisUrl(value: string): boolean {
 }
 
 const envSchema = z.object({
+  NODE_ENV: z.preprocess(
+    emptyToUndefined,
+    z.enum(["development", "test", "production"]).default("development"),
+  ),
   PORT: z.preprocess(
     emptyToUndefined,
     z.coerce.number().int().min(1).max(65535).default(3000),
@@ -66,6 +70,10 @@ const envSchema = z.object({
   DB_POOL_MAX: z.preprocess(
     emptyToUndefined,
     z.coerce.number().int().min(1).max(20).default(10),
+  ),
+  SENTRY_DSN: z.preprocess(
+    emptyToUndefined,
+    z.url("SENTRY_DSN must be a valid URL").optional(),
   ),
 });
 

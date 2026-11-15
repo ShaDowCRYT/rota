@@ -1,11 +1,20 @@
+import * as Sentry from "@sentry/node";
+
 import { createApp } from "./app.js";
 import { env } from "./config/env.js";
 import { checkDatabase, closePool } from "./db/pool.js";
 import { getErrorMessage } from "./lib/errors.js";
 import { logger } from "./lib/logger.js";
 import { checkRedis, closeRedis } from "./lib/redis.js";
+import { initSentry } from "./lib/sentry.js";
+import { errorHandler } from "./middleware/errorHandler.js";
+
+initSentry({ dsn: env.SENTRY_DSN, environment: env.NODE_ENV });
 
 const app = createApp(checkDatabase, checkRedis);
+
+Sentry.setupExpressErrorHandler(app);
+app.use(errorHandler);
 
 const server = app.listen(env.PORT, () => {
   logger.info("server listening", { port: env.PORT });
