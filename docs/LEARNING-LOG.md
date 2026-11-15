@@ -27,3 +27,15 @@ The health checks were improved. The `/health` route checks if the server is run
 If the database check fails, the server logs the actual error but returns a simple 503 error message to the user. On success, it returns `{"status":"ok","database":"ok"}`.
 
 Finally, the server was updated to shut down properly when stopped. It stops accepting new requests, closes database connections, and exits safely. This helps prevent connections from being left open.
+
+## 2026-11-15: Phase 0, Redis connection and readiness
+
+The server was updated to use Redis by adding a REDIS_URL environment variable. The server now checks for this variable before starting and creates the Redis connection only when needed.
+
+The /health/ready endpoint was improved to check both PostgreSQL and Redis. It returns a successful response only when both services are working properly.
+
+The shutdown process was also updated. When the server is stopped, it first stops accepting requests, then closes the Redis connection and the database pool properly.
+
+Tests were added to check different situations where Redis and PostgreSQL are either working or unavailable. Fake functions were used, so the tests do not need real database or Redis connections.
+
+Finally, the environment secrets were kept safe, and no sensitive information was exposed. Docker Redis was started and left running, but nothing was committed to Git.
