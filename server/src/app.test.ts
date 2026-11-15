@@ -64,6 +64,15 @@ describe("health routes", () => {
     expect(await response.json()).toEqual({ status: "ok" });
   });
 
+  it("GET /health does not expose the x-powered-by header", async () => {
+    const started = await startServer(createApp(databaseOk, redisOk));
+    server = started.server;
+
+    const response = await fetch(`${started.baseUrl}/health`);
+
+    expect(response.headers.get("x-powered-by")).toBeNull();
+  });
+
   it("GET /health/ready returns 200 when both checks succeed", async () => {
     const started = await startServer(createApp(databaseOk, redisOk));
     server = started.server;

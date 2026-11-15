@@ -25,6 +25,7 @@ export function createApp(
   checkRedis: RedisCheck,
 ): Express {
   const app = express();
+  app.disable("x-powered-by");
 
   const checkDatabaseReady = async (): Promise<boolean> => {
     await checkDatabase();
