@@ -63,3 +63,36 @@ Sentry's Express handler was added after the routes are defined, so errors passe
 Tests were added using a fake Sentry connection. This ensures that errors are tested without sending real reports to Sentry.
 
 Finally, the setup was tested, and a decision was documented to explain how error reporting works while keeping sensitive information safe.
+
+## 2026-11-16: Phase 0, mobile app foundation
+
+The Rota mobile app was created using Expo and TypeScript. It displays the app name and checks whether the backend server is working through the /health/ready endpoint.
+
+A light and dark theme was added to the app. Reusable components such as text, buttons, cards, and status displays were also created to make the design consistent.
+
+An API helper was added to connect the mobile app to the backend. It has a 10-second timeout to prevent requests from taking too long.
+
+TanStack Query was added to manage data fetching. The app can now show loading, error, and success states. It also allows users to retry failed requests and refresh the screen.
+
+Finally, the app's environment settings and documentation were added. The TypeScript code was also checked to ensure there were no compilation errors.
+
+To test it on your Android phone:
+1. Start your backend server.
+2. Set EXPO_PUBLIC_API_URL to your computer's IP address in the app's .env file.
+3. Open the app/ folder and run npm install if needed.
+4. Run npx expo start.
+5. Open Expo Go on your phone and scan the QR code.
+
+## 2026-11-16: Phase 0, safe area and friendly errors
+
+The Rota app was updated to fix the status screen layout. It now respects the phone's safe areas, so content does not overlap with the status bar or navigation bar.
+
+The error messages were also improved. Instead of showing technical errors, the app now displays simple messages that users can understand, depending on the problem.
+
+When the server returns a 503 error, the app identifies which service is unavailable, such as PostgreSQL or Redis. This helps users understand what is wrong.
+
+Technical error details are only logged in the development console. They are not displayed to users or logged in production.
+
+Finally, the Retry button and pull-to-refresh feature were kept. TypeScript and styling checks were also included to ensure the code follows the project's rules.
+
+In simple terms: This task made the app's screen display properly on phones and improved how it communicates errors to users without exposing technical information.
