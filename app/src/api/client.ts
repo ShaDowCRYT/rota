@@ -1,4 +1,4 @@
-﻿export type HealthStatus = 'ok' | 'error';
+export type HealthStatus = 'ok' | 'error';
 
 export type HealthReadyResponse = {
   status: HealthStatus;

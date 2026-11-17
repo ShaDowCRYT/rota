@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useTheme } from '../theme/useTheme';
 import { Button } from './Button';

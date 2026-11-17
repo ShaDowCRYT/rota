@@ -1,4 +1,4 @@
-﻿import { useColorScheme } from 'react-native';
+import { useColorScheme } from 'react-native';
 import { getTheme } from './tokens';
 
 export function useTheme() {

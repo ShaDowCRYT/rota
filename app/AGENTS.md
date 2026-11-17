@@ -23,3 +23,4 @@ These rules add to the root AGENTS.md. If they conflict, the root file wins.
 ## Limits for now
 - No UI library, no new packages without asking. Use FlashList for long lists.
 - Android only. Until a development build exists, do not use push notifications or native Google sign-in (Expo Go cannot run them).
+- Write every file as UTF-8 without a byte order mark (BOM).

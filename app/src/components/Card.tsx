@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { StyleSheet, View, ViewProps } from 'react-native';
 import { useTheme } from '../theme/useTheme';
 
