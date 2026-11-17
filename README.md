@@ -6,10 +6,8 @@ A shift scheduling app for small teams, with seat-based billing.
 
 **Status:** In development. Phase 0 (foundations) is complete.
 
-Done so far: Express server with health checks, PostgreSQL connection pool, Redis connection, optional Sentry error tracking on the server, automated tests, CI, and an Expo app shell with design tokens that shows live server status.
-Next: Phase 1 (authentication and teams). Still to do: Sentry on the app, and lint for the app.
-
-Still to do in Phase 0: the Expo mobile app shell.
+Done so far: Express server with health checks, PostgreSQL connection pool, Redis connection, optional Sentry error tracking on the server, automated tests, CI, an Expo app shell with design tokens that shows live server status, and app lint checks in CI.
+Next: Phase 1 (authentication and teams). Still to do: Sentry on the app.
 
 ## Demo
 
