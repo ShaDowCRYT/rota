@@ -9,7 +9,7 @@ Rota is a shift scheduling app for small teams (restaurants, clinics, retail). A
 
 - Building: Mobile Task A, PRD Draft v1.0. The PRD is the source of truth. It lives at `docs/PRD.md`.
 - If the PRD and this file disagree about what to build, stop and ask.
-- Current phase: **0 Foundations** (the developer updates this line). Phases are in PRD section 11. Build ONLY the current phase. Never start work from a later phase.
+- Current phase: **1 Authentication and teams** (the developer updates this line). Phases are in PRD section 11. Build ONLY the current phase. Never start work from a later phase.
 - Platform: Android development build only.
 - The developer is a beginner. Before each step, explain it in simple English. Explain any new term in one line. Do one task at a time and wait for "ok" before the next.
 
@@ -111,7 +111,7 @@ Layer rules:
 - A module never reads another module's repository. It calls that module's service.
 - The app talks only to the Rota server. It never calls the payment provider with a secret key.
 - Migrations are SQL files, one per change. Never edit a migration that has already run.
-
+- A table in the sharded group must never have a foreign key to a table in the global group (they will live in different databases). Store the ID and check it in the service.
 ## 5. How the code should look
 
 - TypeScript strict mode. No `any`. ES modules. async/await.
