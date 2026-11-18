@@ -10,7 +10,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "lint": "eslint src",
-    "test": "vitest run"
+    "test": "vitest run",
+    "db:migrate": "tsx scripts/migrate.ts"
   },
   "keywords": [],
   "author": "",

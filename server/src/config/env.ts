@@ -56,6 +56,17 @@ const envSchema = z.object({
         "DATABASE_URL must be a valid postgres:// or postgresql:// URL",
       ),
   ),
+  DATABASE_URL_DIRECT: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .trim()
+      .refine(
+        isPostgresUrl,
+        "DATABASE_URL_DIRECT must be a valid postgres:// or postgresql:// URL",
+      )
+      .optional(),
+  ),
   REDIS_URL: z.preprocess(
     (value) => (value === undefined ? "" : value),
     z
