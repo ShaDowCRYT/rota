@@ -96,3 +96,17 @@ Technical error details are only logged in the development console. They are not
 Finally, the Retry button and pull-to-refresh feature were kept. TypeScript and styling checks were also included to ensure the code follows the project's rules.
 
 In simple terms: This task made the app's screen display properly on phones and improved how it communicates errors to users without exposing technical information.
+
+## 2026-11-18: Phase 1, database tables and migrations
+
+This task focused on setting up the database structure for the Rota project. The tables were divided into two groups: shared data, such as users and refresh tokens, and team-related data, such as teams and memberships.
+
+The tables were designed to support future database sharding. Instead of using foreign keys to connect records across different groups, UUIDs were used. This means the application will need to check that related users and teams actually exist.
+
+A migration system was also created to manage database changes. It generates separate migrations for each database group and keeps track of which migrations have already been applied.
+
+A script was added to run the migrations safely and repeatedly without creating duplicate records or applying the same changes twice.
+
+Finally, the database was checked to confirm that the tables were created successfully. A decision was also documented to explain why cross-group foreign keys were avoided in preparation for future sharding.
+
+In simple terms: This task prepared the database foundation for Rota. It created the tables, organized them for future scaling, added a safe way to update the database, and documented why the structure was designed this way. No actual app functionality was built yet.
