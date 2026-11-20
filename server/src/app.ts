@@ -1,10 +1,22 @@
+import { randomUUID } from "node:crypto";
+
 import express, { type Express } from "express";
 
 import { getErrorMessage } from "./lib/errors.js";
 import { logger } from "./lib/logger.js";
+import type { RateLimiter } from "./middleware/rateLimit.js";
+import { createAuthRouter } from "./modules/auth/routes.js";
+import type { AuthService } from "./modules/auth/service.js";
 
 export type DatabaseCheck = () => Promise<void>;
 export type RedisCheck = () => Promise<boolean>;
+
+export interface AppDependencies {
+  checkDatabase: DatabaseCheck;
+  checkRedis: RedisCheck;
+  authService: AuthService;
+  limiter: RateLimiter;
+}
 
 async function runCheck(
   name: "database" | "redis",
@@ -20,15 +32,30 @@ async function runCheck(
   }
 }
 
-export function createApp(
-  checkDatabase: DatabaseCheck,
-  checkRedis: RedisCheck,
-): Express {
+export function createApp(deps: AppDependencies): Express {
   const app = express();
   app.disable("x-powered-by");
+  app.use(express.json({ limit: "10kb" }));
+
+  app.use((req, res, next) => {
+    const requestId = randomUUID();
+    const startedAt = Date.now();
+
+    res.on("finish", () => {
+      logger.info("request completed", {
+        requestId,
+        userId: req.user?.id ?? null,
+        route: req.route?.path ?? req.path,
+        durationMs: Date.now() - startedAt,
+        status: res.statusCode,
+      });
+    });
+
+    next();
+  });
 
   const checkDatabaseReady = async (): Promise<boolean> => {
-    await checkDatabase();
+    await deps.checkDatabase();
     return true;
   };
 
@@ -39,7 +66,7 @@ export function createApp(
   app.get("/health/ready", async (_req, res) => {
     const [databaseOk, redisOk] = await Promise.all([
       runCheck("database", checkDatabaseReady),
-      runCheck("redis", checkRedis),
+      runCheck("redis", deps.checkRedis),
     ]);
 
     const dependencies = {
@@ -54,6 +81,8 @@ export function createApp(
 
     res.status(503).json({ status: "error", ...dependencies });
   });
+
+  app.use(createAuthRouter(deps.authService, deps.limiter));
 
   return app;
 }

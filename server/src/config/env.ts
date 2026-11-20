@@ -82,6 +82,18 @@ const envSchema = z.object({
     emptyToUndefined,
     z.coerce.number().int().min(1).max(20).default(10),
   ),
+  JWT_ACCESS_SECRET: z.preprocess(
+    (value) => (value === undefined ? "" : value),
+    z
+      .string()
+      .trim()
+      .min(1, "JWT_ACCESS_SECRET is required")
+      .min(32, "JWT_ACCESS_SECRET must be at least 32 characters"),
+  ),
+  ACCESS_TOKEN_TTL_SECONDS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().positive().default(900),
+  ),
   SENTRY_DSN: z.preprocess(
     emptyToUndefined,
     z.url("SENTRY_DSN must be a valid URL").optional(),
