@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  check,
   index,
   pgTable,
   primaryKey,
@@ -9,19 +10,25 @@ import {
 } from "drizzle-orm/pg-core";
 
 // Global group: users stay in the shared database because they are not owned by a team.
-export const users = pgTable("users", {
-  id: uuid("id")
-    .primaryKey()
-    .default(sql`gen_random_uuid()`),
-  email: text("email").notNull().unique(),
-  passwordHash: text("password_hash"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    email: text("email").notNull().unique(),
+    passwordHash: text("password_hash"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check("users_email_lowercase_check", sql`${table.email} = lower(${table.email})`),
+  ],
+);
 
 // Global group: refresh tokens follow a user, not a team, so they stay in the shared database.
 export const refreshTokens = pgTable(
@@ -30,7 +37,9 @@ export const refreshTokens = pgTable(
     id: uuid("id")
       .primaryKey()
       .default(sql`gen_random_uuid()`),
-    userId: uuid("user_id").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
     familyId: uuid("family_id").notNull(),
     tokenHash: text("token_hash").notNull().unique(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -50,7 +59,9 @@ export const refreshTokens = pgTable(
 export const userTeams = pgTable(
   "user_teams",
   {
-    userId: uuid("user_id").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
     teamId: uuid("team_id").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
