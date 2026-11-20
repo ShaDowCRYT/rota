@@ -110,3 +110,19 @@ A script was added to run the migrations safely and repeatedly without creating 
 Finally, the database was checked to confirm that the tables were created successfully. A decision was also documented to explain why cross-group foreign keys were avoided in preparation for future sharding.
 
 In simple terms: This task prepared the database foundation for Rota. It created the tables, organized them for future scaling, added a safe way to update the database, and documented why the structure was designed this way. No actual app functionality was built yet.
+
+## 2026-11-20: Phase 1, basic authentication
+
+This task added the basic authentication system to Rota. Users can now create an account, log in, and access a protected /me endpoint to confirm their identity.
+
+Passwords are securely hashed before being stored in the database. Access tokens are also signed to prove that a user is logged in without exposing their password.
+
+Redis rate limiting was added to protect the authentication endpoints from repeated login attempts and password-guessing attacks.
+
+The system was built with separate libraries, services, repositories, routes, and middleware to keep the code organized and easier to maintain. Tests were also added using fake services, followed by checks against real PostgreSQL and Redis.
+
+Finally, the implementation was documented, and decisions about the authentication setup were recorded.
+
+In simple terms: This task allows users to create accounts, log in, and access protected information securely. It also helps prevent attackers from guessing passwords.
+
+Note: Features such as refresh tokens, user roles, teams, invitations, and password resets were not included because they belong to later development phases.
