@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 
 import { SignJWT, decodeJwt } from "jose";
@@ -72,6 +73,39 @@ async function signup(baseUrl: string, email = credentials.email) {
 
 function encodePart(value: object): string {
   return Buffer.from(JSON.stringify(value)).toString("base64url");
+}
+
+const base64urlAlphabet =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+function splitToken(token: string): [string, string, string] {
+  const parts = token.split(".");
+  if (parts.length !== 3) {
+    throw new Error("expected three jwt parts");
+  }
+
+  return parts as [string, string, string];
+}
+
+function tamperPayload(token: string): string {
+  const [header, payload, signature] = splitToken(token);
+  const index = Math.floor(payload.length / 2);
+  const current = payload[index];
+  if (current === undefined) {
+    throw new Error("payload is empty");
+  }
+
+  const next =
+    base64urlAlphabet[
+      (base64urlAlphabet.indexOf(current) + 1) % base64urlAlphabet.length
+    ];
+  if (next === undefined) {
+    throw new Error("alphabet is empty");
+  }
+
+  const changedPayload =
+    payload.slice(0, index) + next + payload.slice(index + 1);
+  return `${header}.${changedPayload}.${signature}`;
 }
 
 describe("auth endpoints", () => {
@@ -252,9 +286,46 @@ describe("auth endpoints", () => {
     const started = await startServer(app);
     server = started.server;
     const { body } = await signup(started.baseUrl);
-    const tampered =
-      body.accessToken.slice(0, -1) +
-      (body.accessToken.endsWith("A") ? "B" : "A");
+    const tampered = tamperPayload(body.accessToken);
+
+    expect(tampered).not.toBe(body.accessToken);
+
+    const response = await get(started.baseUrl, "/me", tampered);
+
+    expect(response.status).toBe(401);
+  });
+
+  it("a token with a different user id in the payload returns 401", async () => {
+    const { app } = setup();
+    const started = await startServer(app);
+    server = started.server;
+    const { body } = await signup(started.baseUrl);
+    const [header, , signature] = splitToken(body.accessToken);
+    const differentUserId = randomUUID();
+    const changedPayload = encodePart({
+      ...decodeJwt(body.accessToken),
+      sub: differentUserId,
+    });
+    const tampered = `${header}.${changedPayload}.${signature}`;
+
+    expect(tampered).not.toBe(body.accessToken);
+    expect(decodeJwt(tampered).sub).toBe(differentUserId);
+
+    const response = await get(started.baseUrl, "/me", tampered);
+
+    expect(response.status).toBe(401);
+  });
+
+  it("a token with no signature returns 401", async () => {
+    const { app } = setup();
+    const started = await startServer(app);
+    server = started.server;
+    const { body } = await signup(started.baseUrl);
+    const [header, payload] = splitToken(body.accessToken);
+    const tampered = `${header}.${payload}.`;
+
+    expect(tampered).not.toBe(body.accessToken);
+    expect(tampered.endsWith(".")).toBe(true);
 
     const response = await get(started.baseUrl, "/me", tampered);
 
