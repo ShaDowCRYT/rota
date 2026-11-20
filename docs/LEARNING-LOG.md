@@ -126,3 +126,13 @@ Finally, the implementation was documented, and decisions about the authenticati
 In simple terms: This task allows users to create accounts, log in, and access protected information securely. It also helps prevent attackers from guessing passwords.
 
 Note: Features such as refresh tokens, user roles, teams, invitations, and password resets were not included because they belong to later development phases.
+
+## 2026-11-20: Phase 1, flaky tampered-token test
+
+The issue was with a test, not the actual authentication system. The old test changed a character in the token's signature, but sometimes the change did not affect the actual data being verified. This allowed an invalid test case to pass.
+
+The test was fixed so that it now changes a character that genuinely affects the signed data. This ensures the token verification test works reliably every time.
+
+To fix it, a valid token is first created, then different Base64URL characters are tested to find a position where changing the character always makes the token invalid.
+
+In simple terms: This task fixed a faulty test that was not properly detecting changes to a token. The production authentication code was not changed, so there was no production security bug.
