@@ -23,6 +23,7 @@ const authService = createAuthService({
     secret: env.JWT_ACCESS_SECRET,
     ttlSeconds: env.ACCESS_TOKEN_TTL_SECONDS,
   }),
+  refreshTtlDays: env.REFRESH_TOKEN_TTL_DAYS,
 });
 
 const app = createApp({

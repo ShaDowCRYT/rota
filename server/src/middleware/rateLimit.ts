@@ -95,6 +95,14 @@ export function loginIpRateLimit(limiter: RateLimiter): RequestHandler {
   });
 }
 
+export function refreshRateLimit(limiter: RateLimiter): RequestHandler {
+  return rateLimit(limiter, {
+    limit: 60,
+    windowSeconds: 900,
+    key: (req) => `rl:refresh:ip:${requestIp(req)}`,
+  });
+}
+
 export function loginEmailRateLimit(limiter: RateLimiter): RequestHandler {
   return rateLimit(limiter, {
     limit: 5,

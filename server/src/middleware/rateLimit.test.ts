@@ -9,6 +9,7 @@ import {
   FakeAuthRepository,
   FakeRedis,
   startServer,
+  testRefreshTtlDays,
   testTokenConfig,
 } from "../test/helpers.js";
 import { createAuthService } from "../modules/auth/service.js";
@@ -26,6 +27,7 @@ function setup() {
     repository,
     passwords: createFakePasswords(),
     tokens: createTokenIssuer(testTokenConfig),
+    refreshTtlDays: testRefreshTtlDays,
   });
   const redis = new FakeRedis();
   const app = createApp({

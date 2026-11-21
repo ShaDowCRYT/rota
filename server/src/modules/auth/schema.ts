@@ -6,3 +6,7 @@ export const credentialsSchema = z.object({
 });
 
 export type Credentials = z.infer<typeof credentialsSchema>;
+
+export const refreshTokenSchema = z.object({
+  refreshToken: z.string().min(20).max(200),
+});

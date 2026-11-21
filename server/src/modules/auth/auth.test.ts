@@ -11,10 +11,16 @@ import {
   FakeAuthRepository,
   FakeRedis,
   startServer,
+  testRefreshTtlDays,
   testTokenConfig,
 } from "../../test/helpers.js";
+import {
+  generateRefreshToken,
+  hashRefreshToken,
+} from "../../lib/refreshToken.js";
 import { createTokenIssuer } from "../../lib/tokens.js";
 import { createAuthService } from "./service.js";
+import type { RefreshTokenRecord } from "./types.js";
 
 const credentials = {
   email: "User@Example.COM",
@@ -25,15 +31,21 @@ function setup(ttlSeconds = testTokenConfig.ttlSeconds) {
   const repository = new FakeAuthRepository();
   const passwords = createFakePasswords();
   const tokens = createTokenIssuer({ ...testTokenConfig, ttlSeconds });
-  const authService = createAuthService({ repository, passwords, tokens });
+  const authService = createAuthService({
+    repository,
+    passwords,
+    tokens,
+    refreshTtlDays: testRefreshTtlDays,
+  });
+  const redis = new FakeRedis();
   const app = createApp({
     checkDatabase: () => Promise.resolve(),
     checkRedis: () => Promise.resolve(true),
     authService,
-    limiter: createRedisFixedWindowLimiter(new FakeRedis()),
+    limiter: createRedisFixedWindowLimiter(redis),
   });
 
-  return { repository, passwords, tokens, app };
+  return { repository, passwords, tokens, app, redis };
 }
 
 async function post(
@@ -67,8 +79,33 @@ async function signup(baseUrl: string, email = credentials.email) {
   const body = (await response.json()) as {
     user: { id: string; email: string };
     accessToken: string;
+    refreshToken: string;
   };
   return { response, body };
+}
+
+async function login(baseUrl: string) {
+  const response = await post(baseUrl, "/auth/login", credentials);
+  const body = (await response.json()) as {
+    accessToken: string;
+    refreshToken: string;
+  };
+  return { response, body };
+}
+
+async function refresh(baseUrl: string, refreshToken: string) {
+  return post(baseUrl, "/auth/refresh", { refreshToken });
+}
+
+function recordAt(
+  repository: FakeAuthRepository,
+  index: number,
+): RefreshTokenRecord {
+  const record = repository.refreshTokenRecords[index];
+  if (record === undefined) {
+    throw new Error("expected a refresh token record");
+  }
+  return record;
 }
 
 function encodePart(value: object): string {
@@ -400,5 +437,207 @@ describe("auth endpoints", () => {
     const response = await get(started.baseUrl, "/me", body.accessToken);
 
     expect(response.status).toBe(401);
+  });
+
+  it("signup and login return a refresh token and store only its hash", async () => {
+    const { app, repository } = setup();
+    const started = await startServer(app);
+    server = started.server;
+    const { body: signedUp } = await signup(started.baseUrl);
+
+    expect(signedUp.refreshToken.length).toBeGreaterThanOrEqual(20);
+    expect(signedUp.refreshToken.length).toBeLessThanOrEqual(200);
+    expect(recordAt(repository, 0).tokenHash).toBe(
+      hashRefreshToken(signedUp.refreshToken),
+    );
+    expect(recordAt(repository, 0).tokenHash).not.toBe(signedUp.refreshToken);
+
+    const { body: loggedIn } = await login(started.baseUrl);
+
+    expect(loggedIn.refreshToken).not.toBe(signedUp.refreshToken);
+    expect(repository.refreshTokenRecords).toHaveLength(2);
+    expect(recordAt(repository, 1).tokenHash).toBe(
+      hashRefreshToken(loggedIn.refreshToken),
+    );
+    expect(recordAt(repository, 1).familyId).not.toBe(
+      recordAt(repository, 0).familyId,
+    );
+  });
+
+  it("refresh returns a new pair, marks the old token used and keeps the family", async () => {
+    const { app, repository } = setup();
+    const started = await startServer(app);
+    server = started.server;
+    const { body } = await signup(started.baseUrl);
+    const oldRecord = recordAt(repository, 0);
+
+    const response = await refresh(started.baseUrl, body.refreshToken);
+    const pair = (await response.json()) as {
+      accessToken: string;
+      refreshToken: string;
+    };
+
+    expect(response.status).toBe(200);
+    expect(typeof pair.accessToken).toBe("string");
+    expect(pair.refreshToken).not.toBe(body.refreshToken);
+    expect(oldRecord.usedAt).toBeInstanceOf(Date);
+    expect(repository.refreshTokenRecords).toHaveLength(2);
+    expect(recordAt(repository, 1).familyId).toBe(oldRecord.familyId);
+    expect(recordAt(repository, 1).usedAt).toBeNull();
+    expect(recordAt(repository, 1).tokenHash).toBe(
+      hashRefreshToken(pair.refreshToken),
+    );
+  });
+
+  it("reusing a refresh token revokes the whole family (AUTH-4)", async () => {
+    const { app, repository } = setup();
+    const started = await startServer(app);
+    server = started.server;
+    const { body } = await signup(started.baseUrl);
+    const first = await refresh(started.baseUrl, body.refreshToken);
+    const pair = (await first.json()) as { refreshToken: string };
+
+    expect(first.status).toBe(200);
+
+    const reuse = await refresh(started.baseUrl, body.refreshToken);
+    expect(reuse.status).toBe(401);
+    expect(await reuse.json()).toEqual({ error: "Invalid or expired token" });
+
+    const rotated = await refresh(started.baseUrl, pair.refreshToken);
+    expect(rotated.status).toBe(401);
+    expect(await rotated.json()).toEqual({ error: "Invalid or expired token" });
+    expect(recordAt(repository, 0).revokedAt).toBeInstanceOf(Date);
+    expect(recordAt(repository, 1).revokedAt).toBeInstanceOf(Date);
+  });
+
+  it("expired, revoked and unknown tokens return the identical 401 body", async () => {
+    const { app, repository } = setup();
+    const started = await startServer(app);
+    server = started.server;
+    const expiredToken = (await signup(started.baseUrl)).body.refreshToken;
+    const revokedToken = (await login(started.baseUrl)).body.refreshToken;
+    const unknownToken = generateRefreshToken();
+    recordAt(repository, 0).expiresAt = new Date(Date.now() - 1000);
+
+    const logout = await post(started.baseUrl, "/auth/logout", {
+      refreshToken: revokedToken,
+    });
+    expect(logout.status).toBe(204);
+
+    const expired = await refresh(started.baseUrl, expiredToken);
+    const revoked = await refresh(started.baseUrl, revokedToken);
+    const unknown = await refresh(started.baseUrl, unknownToken);
+
+    expect(expired.status).toBe(401);
+    expect(revoked.status).toBe(401);
+    expect(unknown.status).toBe(401);
+    expect(await expired.json()).toEqual({ error: "Invalid or expired token" });
+    expect(await revoked.json()).toEqual({ error: "Invalid or expired token" });
+    expect(await unknown.json()).toEqual({ error: "Invalid or expired token" });
+  });
+
+  it("refresh for a deleted user revokes the family and returns 401", async () => {
+    const { app, repository } = setup();
+    const started = await startServer(app);
+    server = started.server;
+    const { body } = await signup(started.baseUrl);
+
+    repository.byEmail.delete("user@example.com");
+
+    const response = await refresh(started.baseUrl, body.refreshToken);
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({ error: "Invalid or expired token" });
+    expect(recordAt(repository, 0).revokedAt).toBeInstanceOf(Date);
+  });
+
+  it("logout revokes the family and an unknown token still returns 204", async () => {
+    const { app } = setup();
+    const started = await startServer(app);
+    server = started.server;
+    const { body } = await signup(started.baseUrl);
+
+    const logout = await post(started.baseUrl, "/auth/logout", {
+      refreshToken: body.refreshToken,
+    });
+    expect(logout.status).toBe(204);
+
+    const later = await refresh(started.baseUrl, body.refreshToken);
+    expect(later.status).toBe(401);
+
+    const unknown = await post(started.baseUrl, "/auth/logout", {
+      refreshToken: generateRefreshToken(),
+    });
+    expect(unknown.status).toBe(204);
+  });
+
+  it("logout-all revokes both device families (AUTH-5)", async () => {
+    const { app, repository } = setup();
+    const started = await startServer(app);
+    server = started.server;
+    const first = (await signup(started.baseUrl)).body;
+    const second = (await login(started.baseUrl)).body;
+
+    expect(second.refreshToken).not.toBe(first.refreshToken);
+    expect(recordAt(repository, 1).familyId).not.toBe(
+      recordAt(repository, 0).familyId,
+    );
+
+    const withoutToken = await post(started.baseUrl, "/auth/logout-all", {});
+    expect(withoutToken.status).toBe(401);
+
+    const logoutAll = await post(
+      started.baseUrl,
+      "/auth/logout-all",
+      {},
+      second.accessToken,
+    );
+    expect(logoutAll.status).toBe(204);
+
+    const firstRefresh = await refresh(started.baseUrl, first.refreshToken);
+    const secondRefresh = await refresh(started.baseUrl, second.refreshToken);
+    expect(firstRefresh.status).toBe(401);
+    expect(secondRefresh.status).toBe(401);
+  });
+
+  it("refresh returns 429 with Retry-After after 60 requests per IP", async () => {
+    const { app } = setup();
+    const started = await startServer(app);
+    server = started.server;
+    let current = (await signup(started.baseUrl)).body.refreshToken;
+
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      const response = await refresh(started.baseUrl, current);
+      expect(response.status).toBe(200);
+      current = ((await response.json()) as { refreshToken: string }).refreshToken;
+    }
+
+    const limited = await refresh(started.baseUrl, current);
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("retry-after")).toBe("900");
+    expect(await limited.json()).toEqual({ error: "Too many requests" });
+  });
+
+  it("refresh returns 503 when Redis is unavailable", async () => {
+    const { app, redis } = setup();
+    const started = await startServer(app);
+    server = started.server;
+    const { body } = await signup(started.baseUrl);
+    redis.fail = true;
+
+    const response = await refresh(started.baseUrl, body.refreshToken);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "Service unavailable" });
+  });
+
+  it("refresh rejects a body with no valid refresh token", async () => {
+    const { app } = setup();
+    const started = await startServer(app);
+    server = started.server;
+
+    const response = await post(started.baseUrl, "/auth/refresh", {
+      refreshToken: "short",
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid request" });
   });
 });

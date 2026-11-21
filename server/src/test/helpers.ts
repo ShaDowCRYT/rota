@@ -9,6 +9,7 @@ import type { AuthService } from "../modules/auth/service.js";
 import type {
   AuthRepository,
   PasswordService,
+  RefreshTokenRecord,
   UserRecord,
 } from "../modules/auth/types.js";
 import { DuplicateEmailError } from "../modules/auth/types.js";
@@ -17,6 +18,8 @@ export const testTokenConfig = {
   secret: "test-only-secret-that-is-long-enough-for-hs256",
   ttlSeconds: 900,
 };
+
+export const testRefreshTtlDays = 30;
 
 export function startServer(
   app: Express,
@@ -46,6 +49,11 @@ export const unusedAuthService: AuthService = {
   async login() {
     throw new Error("unused in this test");
   },
+  async refresh() {
+    throw new Error("unused in this test");
+  },
+  async logout() {},
+  async logoutAll() {},
   async verifyAccessToken() {
     return undefined;
   },
@@ -87,6 +95,7 @@ export class FakeRedis implements RedisLike {
 
 export class FakeAuthRepository implements AuthRepository {
   readonly byEmail = new Map<string, UserRecord>();
+  readonly refreshTokenRecords: RefreshTokenRecord[] = [];
 
   async findByEmail(email: string): Promise<UserRecord | undefined> {
     return this.byEmail.get(email);
@@ -104,6 +113,75 @@ export class FakeAuthRepository implements AuthRepository {
     const user = { id: randomUUID(), email, passwordHash };
     this.byEmail.set(email, user);
     return user;
+  }
+
+  async createRefreshToken(
+    userId: string,
+    familyId: string,
+    tokenHash: string,
+    expiresAt: Date,
+  ): Promise<RefreshTokenRecord> {
+    const record: RefreshTokenRecord = {
+      id: randomUUID(),
+      userId,
+      familyId,
+      tokenHash,
+      expiresAt,
+      usedAt: null,
+      revokedAt: null,
+      createdAt: new Date(),
+    };
+
+    this.refreshTokenRecords.push(record);
+    return record;
+  }
+
+  async findRefreshTokenByHash(
+    tokenHash: string,
+  ): Promise<RefreshTokenRecord | undefined> {
+    return this.refreshTokenRecords.find(
+      (record) => record.tokenHash === tokenHash,
+    );
+  }
+
+  async consumeRefreshToken(
+    id: string,
+  ): Promise<RefreshTokenRecord | undefined> {
+    const record = this.refreshTokenRecords.find((item) => item.id === id);
+
+    if (
+      record === undefined ||
+      record.usedAt !== null ||
+      record.revokedAt !== null ||
+      record.expiresAt <= new Date()
+    ) {
+      return undefined;
+    }
+
+    record.usedAt = new Date();
+    return record;
+  }
+
+  async revokeFamily(familyId: string): Promise<void> {
+    for (const record of this.refreshTokenRecords) {
+      if (record.familyId === familyId && record.revokedAt === null) {
+        record.revokedAt = new Date();
+      }
+    }
+  }
+
+  async revokeAllForUser(userId: string): Promise<void> {
+    for (const record of this.refreshTokenRecords) {
+      if (record.userId === userId && record.revokedAt === null) {
+        record.revokedAt = new Date();
+      }
+    }
+  }
+
+  async withTransaction<T>(
+    work: (repository: AuthRepository) => Promise<T>,
+  ): Promise<T> {
+    return work(this);
   }
 }
 

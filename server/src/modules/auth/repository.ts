@@ -1,17 +1,31 @@
-import { eq } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 
 import { db } from "../../db/client.js";
-import { users } from "../../db/schema/global.js";
+import { refreshTokens, users } from "../../db/schema/global.js";
 import {
   DuplicateEmailError,
   type AuthRepository,
   type UserRecord,
 } from "./types.js";
 
+type TransactionClient = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type DbClient = typeof db | TransactionClient;
+
 const columns = {
   id: users.id,
   email: users.email,
   passwordHash: users.passwordHash,
+};
+
+const refreshTokenColumns = {
+  id: refreshTokens.id,
+  userId: refreshTokens.userId,
+  familyId: refreshTokens.familyId,
+  tokenHash: refreshTokens.tokenHash,
+  expiresAt: refreshTokens.expiresAt,
+  usedAt: refreshTokens.usedAt,
+  revokedAt: refreshTokens.revokedAt,
+  createdAt: refreshTokens.createdAt,
 };
 
 function isUniqueViolation(error: unknown): boolean {
@@ -23,10 +37,10 @@ function isUniqueViolation(error: unknown): boolean {
   );
 }
 
-export function createAuthRepository(): AuthRepository {
+export function createAuthRepository(client: DbClient = db): AuthRepository {
   return {
     async findByEmail(email) {
-      const rows = await db
+      const rows = await client
         .select(columns)
         .from(users)
         .where(eq(users.email, email))
@@ -36,7 +50,7 @@ export function createAuthRepository(): AuthRepository {
     },
 
     async findById(id) {
-      const rows = await db
+      const rows = await client
         .select(columns)
         .from(users)
         .where(eq(users.id, id))
@@ -47,7 +61,7 @@ export function createAuthRepository(): AuthRepository {
 
     async createUser(email, passwordHash): Promise<UserRecord> {
       try {
-        const rows = await db
+        const rows = await client
           .insert(users)
           .values({ email, passwordHash })
           .returning(columns);
@@ -64,6 +78,75 @@ export function createAuthRepository(): AuthRepository {
         }
         throw error;
       }
+    },
+
+    async createRefreshToken(userId, familyId, tokenHash, expiresAt) {
+      const rows = await client
+        .insert(refreshTokens)
+        .values({ userId, familyId, tokenHash, expiresAt })
+        .returning(refreshTokenColumns);
+
+      const created = rows[0];
+      if (created === undefined) {
+        throw new Error("refresh token insert returned no row");
+      }
+
+      return created;
+    },
+
+    async findRefreshTokenByHash(tokenHash) {
+      const rows = await client
+        .select(refreshTokenColumns)
+        .from(refreshTokens)
+        .where(eq(refreshTokens.tokenHash, tokenHash))
+        .limit(1);
+
+      return rows[0];
+    },
+
+    async consumeRefreshToken(id) {
+      const rows = await client
+        .update(refreshTokens)
+        .set({ usedAt: sql`now()` })
+        .where(
+          and(
+            eq(refreshTokens.id, id),
+            isNull(refreshTokens.usedAt),
+            isNull(refreshTokens.revokedAt),
+            gt(refreshTokens.expiresAt, sql`now()`),
+          ),
+        )
+        .returning(refreshTokenColumns);
+
+      return rows[0];
+    },
+
+    async revokeFamily(familyId) {
+      await client
+        .update(refreshTokens)
+        .set({ revokedAt: sql`now()` })
+        .where(
+          and(
+            eq(refreshTokens.familyId, familyId),
+            isNull(refreshTokens.revokedAt),
+          ),
+        );
+    },
+
+    async revokeAllForUser(userId) {
+      await client
+        .update(refreshTokens)
+        .set({ revokedAt: sql`now()` })
+        .where(
+          and(
+            eq(refreshTokens.userId, userId),
+            isNull(refreshTokens.revokedAt),
+          ),
+        );
+    },
+
+    withTransaction(work) {
+      return db.transaction((tx) => work(createAuthRepository(tx)));
     },
   };
 }
