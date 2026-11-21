@@ -136,3 +136,17 @@ The test was fixed so that it now changes a character that genuinely affects the
 To fix it, a valid token is first created, then different Base64URL characters are tested to find a position where changing the character always makes the token invalid.
 
 In simple terms: This task fixed a faulty test that was not properly detecting changes to a token. The production authentication code was not changed, so there was no production security bug.
+
+## 2026-11-21: Phase 1, refresh tokens and logout
+
+This task added a refresh-token system to the Rota server. When a user signs up or logs in, the server now creates a long-lived refresh token alongside the access token.
+
+Whenever a user refreshes their session, the old refresh token is replaced with a new one. Each token can only be used once, making it harder for stolen tokens to be reused.
+
+The server also detects when an already-used refresh token is presented again. If this happens, it assumes the token may have been stolen and revokes the entire token family, ending all sessions linked to that chain.
+
+Logout and logout-everywhere features were also added. Users can now end their current session or revoke all their active sessions.
+
+For security, the server stores only a hashed version of each refresh token. This means that even if someone accesses the database, they cannot directly use the stored tokens.
+
+In simple terms: This task makes Rota's login system more secure by introducing replaceable login keys. If an old key is reused, the server treats it as suspicious and blocks the entire session chain.
