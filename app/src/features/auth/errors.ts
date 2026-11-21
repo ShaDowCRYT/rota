@@ -55,14 +55,17 @@ function toFriendlyError(error: unknown): FriendlyError {
       return { kind: 'invalid-credentials', message: 'Invalid email or password.' };
     }
     if (error.status === 409) {
-      return { kind: 'email-taken', message: 'That email is already in use.' };
+      return { kind: 'email-taken', message: 'Email already in use' };
     }
     if (error.status === 429) {
       const minutes = Math.max(1, Math.ceil((error.retryAfterSeconds ?? 60) / 60));
       return { kind: 'rate-limited', message: `Too many attempts. Try again in ${minutes} minutes` };
     }
+    if (error.status === 503) {
+      return { kind: 'service-unavailable', message: 'Service unavailable. Try again.' };
+    }
     if (error.status >= 500) {
-      return { kind: 'service-unavailable', message: "Can't reach the server. Try again." };
+      return { kind: 'unknown', message: 'Something went wrong. Try again.' };
     }
     return { kind: 'unknown', message: 'Something went wrong. Try again.' };
   }
@@ -71,8 +74,11 @@ function toFriendlyError(error: unknown): FriendlyError {
     if (error.kind === 'timeout') {
       return { kind: 'timeout', message: 'The server took too long. Try again.' };
     }
-    if (error.kind === 'unreachable' || error.kind === 'service_unavailable') {
+    if (error.kind === 'unreachable') {
       return { kind: 'network', message: "Can't reach the server. Check your connection and try again." };
+    }
+    if (error.kind === 'service_unavailable') {
+      return { kind: 'service-unavailable', message: 'Service unavailable. Try again.' };
     }
     return { kind: 'unknown', message: 'Something went wrong. Try again.' };
   }

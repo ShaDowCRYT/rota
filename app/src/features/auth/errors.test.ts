@@ -21,7 +21,9 @@ describe('mapError', () => {
   });
 
   it('maps duplicate email', () => {
-    expect(mapError(new ApiFailure(409)).kind).toBe('email-taken');
+    const result = mapError(new ApiFailure(409));
+    expect(result.kind).toBe('email-taken');
+    expect(result.message).toBe('Email already in use');
   });
 
   it('maps rate limits using Retry-After minutes', () => {
@@ -30,8 +32,27 @@ describe('mapError', () => {
     expect(result.message).toBe('Too many attempts. Try again in 2 minutes');
   });
 
-  it('maps service failures', () => {
-    expect(mapError(new ApiFailure(503)).kind).toBe('service-unavailable');
+  it('maps 503 to service-unavailable', () => {
+    const result = mapError(new ApiFailure(503));
+    expect(result.kind).toBe('service-unavailable');
+    expect(result.message).toBe('Service unavailable. Try again.');
+  });
+
+  it.each([500, 502, 504])('maps %i to unknown when the server answered', (status) => {
+    const result = mapError(new ApiFailure(status));
+    expect(result.kind).toBe('unknown');
+    expect(result.kind).not.toBe('network');
+    expect(result.kind).not.toBe('timeout');
+    expect(result.message).toBe('Something went wrong. Try again.');
+    expect(result.message).not.toContain('Can\'t reach the server');
+    expect(result.message).not.toContain('Request failed with status');
+  });
+
+  it('uses network and timeout only when no response arrived', () => {
+    expect(mapError(new TypeError('Failed to fetch')).kind).toBe('network');
+    expect(mapError(new ApiError('unreachable', 'Server unreachable.')).kind).toBe('network');
+    expect(mapError(new ApiError('timeout', 'Request timed out.')).kind).toBe('timeout');
+    expect(mapError(new ApiError('service_unavailable', 'Service unavailable.')).kind).toBe('service-unavailable');
   });
 
   it('maps unknown failures without leaking raw text', () => {
