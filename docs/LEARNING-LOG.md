@@ -150,3 +150,17 @@ Logout and logout-everywhere features were also added. Users can now end their c
 For security, the server stores only a hashed version of each refresh token. This means that even if someone accesses the database, they cannot directly use the stored tokens.
 
 In simple terms: This task makes Rota's login system more secure by introducing replaceable login keys. If an old key is reused, the server treats it as suspicious and blocks the entire session chain.
+
+## 2026-11-21: Phase 1, duplicate email registration
+
+This task fixed an issue with duplicate email registration. Previously, when someone tried to sign up with an email that already existed, the server returned a 500 error instead of properly identifying it as a duplicate.
+
+The problem was that the database error code was stored inside a nested error object. The server was only checking the outer error, so it failed to recognise the duplicate email.
+
+The server was updated to check both the main error and its nested cause. Now, when someone tries to register with an existing email, the server correctly returns a 409 error with the message "Email already in use."
+
+The mobile app's error handling was also improved. It now displays "Something went wrong. Try again." when the server responds with an invalid or unexpected response.
+
+The app only displays "Can't reach the server" when it receives no response at all, such as when the server is unreachable.
+
+In simple terms: This task fixed how Rota handles duplicate email addresses and improved how the app explains connection problems. It prevents normal errors from being mistaken for server crashes or internet problems.
