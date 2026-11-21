@@ -7,3 +7,4 @@ build/
 *.log
 .expo/
 .DS_Store
+docs/slice-2-code-review.md
