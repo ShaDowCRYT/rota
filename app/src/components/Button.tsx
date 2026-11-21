@@ -44,7 +44,7 @@ export function Button({
           borderRadius: theme.radii.md,
           paddingHorizontal: theme.spacing.lg,
           paddingVertical: theme.spacing.md,
-          opacity: pressed || isDisabled ? 0.7 : 1,
+          opacity: pressed ? theme.opacity.pressed : isDisabled ? theme.opacity.disabled : theme.opacity.enabled,
         },
         style,
       ]}

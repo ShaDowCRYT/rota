@@ -46,6 +46,7 @@ const darkColors: ThemeColors = {
 };
 
 export const spacing = {
+  none: 0,
   xs: 4,
   sm: 8,
   md: 12,
@@ -83,6 +84,16 @@ export const sizes = {
   borderWidth: 1,
 } as const;
 
+export const layout = {
+  fill: 1,
+} as const;
+
+export const opacity = {
+  enabled: 1,
+  pressed: 0.7,
+  disabled: 0.6,
+} as const;
+
 export type AppTheme = {
   name: ThemeName;
   colors: ThemeColors;
@@ -91,6 +102,8 @@ export type AppTheme = {
   typeScale: typeof typeScale;
   shadows: typeof shadows;
   sizes: typeof sizes;
+  layout: typeof layout;
+  opacity: typeof opacity;
 };
 
 export const lightTheme: AppTheme = {
@@ -101,6 +114,8 @@ export const lightTheme: AppTheme = {
   typeScale,
   shadows,
   sizes,
+  layout,
+  opacity,
 };
 
 export const darkTheme: AppTheme = {
@@ -111,6 +126,8 @@ export const darkTheme: AppTheme = {
   typeScale,
   shadows,
   sizes,
+  layout,
+  opacity,
 };
 
 export function getTheme(name: ThemeName): AppTheme {

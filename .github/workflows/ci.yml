@@ -70,6 +70,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Test
+        run: npm test
+
       - name: Audit (blocks on critical)
         run: npm audit --omit=dev --audit-level=critical
 

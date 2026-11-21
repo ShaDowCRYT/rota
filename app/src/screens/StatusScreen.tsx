@@ -25,7 +25,7 @@ export function StatusScreen() {
 
   return (
     <ScrollView
-      style={{ flex: 1, backgroundColor: theme.colors.background }}
+      style={{ flex: theme.layout.fill, backgroundColor: theme.colors.background }}
       contentContainerStyle={[styles.content, { padding: theme.spacing.lg }]}
       refreshControl={
         <RefreshControl

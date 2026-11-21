@@ -1,3 +1,5 @@
+import type { FetchResponse } from './types';
+
 export type HealthStatus = 'ok' | 'error';
 
 export type HealthReadyResponse = {
@@ -20,9 +22,9 @@ export class ApiError extends Error {
   }
 }
 
-const REQUEST_TIMEOUT_MS = 10000;
+export const REQUEST_TIMEOUT_MS = 10000;
 
-function getApiUrl(): string {
+export function getApiUrl(): string {
   const url = process.env.EXPO_PUBLIC_API_URL;
   if (!url) {
     throw new ApiError('unknown', 'Missing API URL.');
@@ -30,36 +32,21 @@ function getApiUrl(): string {
   return url.replace(/\/$/, '');
 }
 
-export async function getHealthReady(): Promise<HealthReadyResponse> {
+export async function apiFetch(path: string, init: RequestInit = {}): Promise<FetchResponse> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${getApiUrl()}/health/ready`, {
-      method: 'GET',
+    const headers = new Headers(init.headers);
+    if (!headers.has('Accept')) {
+      headers.set('Accept', 'application/json');
+    }
+    return await fetch(`${getApiUrl()}${path}`, {
+      ...init,
+      headers,
       signal: controller.signal,
-      headers: { Accept: 'application/json' },
     });
-
-    let data: unknown = null;
-    try {
-      data = await response.json();
-    } catch {
-      data = null;
-    }
-
-    if (isHealthReadyResponse(data)) {
-      if (!response.ok || data.status !== 'ok') {
-        throw new ApiError('service_unavailable', 'Service unavailable.', data);
-      }
-      return data;
-    }
-
-    throw new ApiError('unknown', 'Invalid server response.');
   } catch (error) {
-    if (error instanceof ApiError) {
-      throw error;
-    }
     if (error instanceof Error && error.name === 'AbortError') {
       throw new ApiError('timeout', 'Request timed out.');
     }
@@ -67,6 +54,26 @@ export async function getHealthReady(): Promise<HealthReadyResponse> {
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+export async function getHealthReady(): Promise<HealthReadyResponse> {
+  const response = await apiFetch('/health/ready', { method: 'GET' });
+
+  let data: unknown = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+
+  if (isHealthReadyResponse(data)) {
+    if (!response.ok || data.status !== 'ok') {
+      throw new ApiError('service_unavailable', 'Service unavailable.', data);
+    }
+    return data;
+  }
+
+  throw new ApiError('unknown', 'Invalid server response.');
 }
 
 function isHealthReadyResponse(value: unknown): value is HealthReadyResponse {
