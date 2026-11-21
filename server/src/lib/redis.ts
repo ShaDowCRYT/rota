@@ -1,17 +1,16 @@
 import { Redis } from "ioredis";
 
-import { env } from "../config/env.js";
 import { getErrorMessage } from "./errors.js";
 import { logger } from "./logger.js";
 
 let client: Redis | undefined;
 
-export function getRedis(): Redis {
+export function getRedis(redisUrl: string): Redis {
   if (client !== undefined) {
     return client;
   }
 
-  const created = new Redis(env.REDIS_URL, {
+  const created = new Redis(redisUrl, {
     lazyConnect: true,
     connectTimeout: 10_000,
     maxRetriesPerRequest: 2,
@@ -28,9 +27,9 @@ export function getRedis(): Redis {
   return created;
 }
 
-export async function checkRedis(): Promise<boolean> {
+export async function checkRedis(redisUrl: string): Promise<boolean> {
   try {
-    await getRedis().ping();
+    await getRedis(redisUrl).ping();
     return true;
   } catch {
     return false;

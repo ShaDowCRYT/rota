@@ -1,6 +1,6 @@
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 
-import { db } from "../../db/client.js";
+import type { Database } from "../../db/client.js";
 import { refreshTokens, users } from "../../db/schema/global.js";
 import { isUniqueViolation } from "../../lib/errors.js";
 import {
@@ -9,8 +9,8 @@ import {
   type UserRecord,
 } from "./types.js";
 
-type TransactionClient = Parameters<Parameters<typeof db.transaction>[0]>[0];
-type DbClient = typeof db | TransactionClient;
+type TransactionClient = Parameters<Parameters<Database["transaction"]>[0]>[0];
+type DbClient = Database | TransactionClient;
 
 const columns = {
   id: users.id,
@@ -29,7 +29,10 @@ const refreshTokenColumns = {
   createdAt: refreshTokens.createdAt,
 };
 
-export function createAuthRepository(client: DbClient = db): AuthRepository {
+export function createAuthRepository(
+  db: Database,
+  client: DbClient = db,
+): AuthRepository {
   return {
     async findByEmail(email) {
       const rows = await client
@@ -138,7 +141,7 @@ export function createAuthRepository(client: DbClient = db): AuthRepository {
     },
 
     withTransaction(work) {
-      return db.transaction((tx) => work(createAuthRepository(tx)));
+      return db.transaction((tx) => work(createAuthRepository(db, tx)));
     },
   };
 }

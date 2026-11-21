@@ -2,7 +2,8 @@ import * as Sentry from "@sentry/node";
 
 import { createApp } from "./app.js";
 import { env } from "./config/env.js";
-import { checkDatabase, closePool } from "./db/pool.js";
+import { createDb } from "./db/client.js";
+import { checkDatabase, closePool, getPool } from "./db/pool.js";
 import { getErrorMessage } from "./lib/errors.js";
 import { logger } from "./lib/logger.js";
 import { createPasswordService } from "./lib/password.js";
@@ -16,8 +17,11 @@ import { createAuthService } from "./modules/auth/service.js";
 
 initSentry({ dsn: env.SENTRY_DSN, environment: env.NODE_ENV });
 
+const database = createDb(getPool());
+const redis = getRedis(env.REDIS_URL);
+
 const authService = createAuthService({
-  repository: createAuthRepository(),
+  repository: createAuthRepository(database),
   passwords: createPasswordService(),
   tokens: createTokenIssuer({
     secret: env.JWT_ACCESS_SECRET,
@@ -28,9 +32,9 @@ const authService = createAuthService({
 
 const app = createApp({
   checkDatabase,
-  checkRedis,
+  checkRedis: () => checkRedis(env.REDIS_URL),
   authService,
-  limiter: createRedisFixedWindowLimiter(getRedis()),
+  limiter: createRedisFixedWindowLimiter(redis),
 });
 
 Sentry.setupExpressErrorHandler(app);

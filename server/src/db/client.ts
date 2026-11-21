@@ -1,5 +1,8 @@
 import { drizzle } from "drizzle-orm/node-postgres";
+import type { Pool } from "pg";
 
-import { getPool } from "./pool.js";
+export function createDb(pool: Pool) {
+  return drizzle(pool);
+}
 
-export const db = drizzle(getPool());
+export type Database = ReturnType<typeof createDb>;

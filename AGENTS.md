@@ -128,6 +128,7 @@ A task is done only when ALL of these are true:
 2. Every PRD requirement ID in the task has evidence: test output or the database record, shown to the developer.
 3. `.env` is not staged, and no secret appears in the diff.
 4. Docs are updated. A decision record is added to `docs/decisions/` if a choice was made.
+5. Tests must pass with no .env file and no environment variables.
 
 Finish every task with:
 - A checklist of each PRD requirement ID, marked met or not met. Never say "done" while any item is not met. Say which one and why.
