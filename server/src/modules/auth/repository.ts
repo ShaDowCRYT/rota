@@ -2,6 +2,7 @@ import { and, eq, gt, isNull, sql } from "drizzle-orm";
 
 import { db } from "../../db/client.js";
 import { refreshTokens, users } from "../../db/schema/global.js";
+import { isUniqueViolation } from "../../lib/errors.js";
 import {
   DuplicateEmailError,
   type AuthRepository,
@@ -27,15 +28,6 @@ const refreshTokenColumns = {
   revokedAt: refreshTokens.revokedAt,
   createdAt: refreshTokens.createdAt,
 };
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "23505"
-  );
-}
 
 export function createAuthRepository(client: DbClient = db): AuthRepository {
   return {

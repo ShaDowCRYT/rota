@@ -26,3 +26,27 @@ export function isPayloadTooLarge(error: unknown): boolean {
     error.type === "entity.too.large"
   );
 }
+
+export function getPostgresErrorCode(error: unknown): string | undefined {
+  let current = error;
+  const visited = new Set<unknown>();
+
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (current === null || typeof current !== "object" || visited.has(current)) {
+      return undefined;
+    }
+    visited.add(current);
+
+    const record = current as { code?: unknown; cause?: unknown };
+    if (typeof record.code === "string") {
+      return record.code;
+    }
+    current = record.cause;
+  }
+
+  return undefined;
+}
+
+export function isUniqueViolation(error: unknown): boolean {
+  return getPostgresErrorCode(error) === "23505";
+}

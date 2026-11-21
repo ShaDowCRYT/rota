@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 
+import { DrizzleQueryError } from "drizzle-orm";
 import { SignJWT, decodeJwt } from "jose";
+import { DatabaseError } from "pg";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createApp } from "../../app.js";
+import { getPostgresErrorCode } from "../../lib/errors.js";
 import { createRedisFixedWindowLimiter } from "../../middleware/rateLimit.js";
 import {
   createFakePasswords,
@@ -19,6 +22,7 @@ import {
   hashRefreshToken,
 } from "../../lib/refreshToken.js";
 import { createTokenIssuer } from "../../lib/tokens.js";
+import { createAuthRepository } from "./repository.js";
 import { createAuthService } from "./service.js";
 import type { RefreshTokenRecord } from "./types.js";
 
@@ -26,6 +30,30 @@ const credentials = {
   email: "User@Example.COM",
   password: "correct horse battery staple",
 };
+
+function realUniqueViolation(): DrizzleQueryError {
+  const cause = new DatabaseError(
+    "duplicate key value violates unique constraint",
+    0,
+    "error",
+  );
+  cause.code = "23505";
+  return new DrizzleQueryError("insert into users", [], cause);
+}
+
+function repositoryThrowing(error: unknown) {
+  const failingClient = {
+    insert: () => ({
+      values: () => ({
+        returning: () => Promise.reject(error),
+      }),
+    }),
+  };
+
+  return createAuthRepository(
+    failingClient as unknown as Parameters<typeof createAuthRepository>[0],
+  );
+}
 
 function setup(ttlSeconds = testTokenConfig.ttlSeconds) {
   const repository = new FakeAuthRepository();
@@ -199,6 +227,33 @@ describe("auth endpoints", () => {
     expect(first.status).toBe(201);
     expect(second.status).toBe(409);
     expect(await second.json()).toEqual({ error: "Email already in use" });
+  });
+
+  it("returns 409 for a real drizzle unique violation from the database", async () => {
+    const violation = realUniqueViolation();
+    expect("code" in violation).toBe(false);
+    expect(getPostgresErrorCode(violation.cause)).toBe("23505");
+
+    const repository = repositoryThrowing(violation);
+    const authService = createAuthService({
+      repository,
+      passwords: createFakePasswords(),
+      tokens: createTokenIssuer(testTokenConfig),
+      refreshTtlDays: testRefreshTtlDays,
+    });
+    const app = createApp({
+      checkDatabase: () => Promise.resolve(),
+      checkRedis: () => Promise.resolve(true),
+      authService,
+      limiter: createRedisFixedWindowLimiter(new FakeRedis()),
+    });
+    const started = await startServer(app);
+    server = started.server;
+
+    const response = await post(started.baseUrl, "/auth/signup", credentials);
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "Email already in use" });
   });
 
   it("weak password and bad email return 400", async () => {
