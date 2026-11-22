@@ -9,6 +9,7 @@ const settings = [
   "REDIS_URL",
   "JWT_ACCESS_SECRET",
   "SENTRY_DSN",
+  "GOOGLE_WEB_CLIENT_ID",
 ] as const;
 
 const saved = new Map<string, string | undefined>();

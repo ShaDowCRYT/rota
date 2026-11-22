@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/node";
+import { createRemoteJWKSet } from "jose";
 
 import { createApp } from "./app.js";
 import { env } from "./config/env.js";
@@ -63,6 +64,10 @@ const app = createApp({
   passwords,
   emailSender: createDevEmailSender(env.NODE_ENV),
   resetTtlMinutes: env.RESET_TOKEN_TTL_MINUTES,
+  googleAudience: env.GOOGLE_WEB_CLIENT_ID,
+  googleJwks: createRemoteJWKSet(
+    new URL("https://www.googleapis.com/oauth2/v3/certs"),
+  ),
 });
 
 Sentry.setupExpressErrorHandler(app);

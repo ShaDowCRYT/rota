@@ -18,6 +18,7 @@ export const users = pgTable(
       .default(sql`gen_random_uuid()`),
     email: text("email").notNull().unique(),
     passwordHash: text("password_hash"),
+    googleSub: text("google_sub").unique(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

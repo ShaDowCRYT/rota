@@ -5,6 +5,12 @@ export interface AuthUser {
 
 export interface UserRecord extends AuthUser {
   passwordHash: string | null;
+  googleSub: string | null;
+}
+
+export interface GoogleIdentity {
+  googleSub: string;
+  email: string;
 }
 
 export interface TokenPair {
@@ -30,7 +36,10 @@ export interface RefreshTokenRecord {
 export interface AuthRepository {
   findByEmail(email: string): Promise<UserRecord | undefined>;
   findById(id: string): Promise<UserRecord | undefined>;
+  findByGoogleSub(googleSub: string): Promise<UserRecord | undefined>;
   createUser(email: string, passwordHash: string): Promise<UserRecord>;
+  createGoogleUser(email: string, googleSub: string): Promise<UserRecord>;
+  linkGoogleAccount(userId: string, googleSub: string): Promise<UserRecord>;
   createRefreshToken(
     userId: string,
     familyId: string,
@@ -55,6 +64,14 @@ export class DuplicateEmailError extends Error {
     this.name = "DuplicateEmailError";
   }
 }
+
+export class DuplicateGoogleAccountError extends Error {
+  constructor() {
+    super("duplicate google account");
+    this.name = "DuplicateGoogleAccountError";
+  }
+}
+
 
 export interface PasswordService {
   hash(password: string): Promise<string>;

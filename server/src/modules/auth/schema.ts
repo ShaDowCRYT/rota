@@ -11,6 +11,12 @@ export const refreshTokenSchema = z.object({
   refreshToken: z.string().min(20).max(200),
 });
 
+export const googleIdTokenSchema = z
+  .object({
+    idToken: z.string().min(1).max(8192),
+  })
+  .strict();
+
 export const forgotPasswordSchema = z
   .object({
     email: z.string().trim().toLowerCase().email("Invalid email").max(254),

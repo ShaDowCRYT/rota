@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 
 import express, { type Express } from "express";
+import type { JWTVerifyGetKey } from "jose";
 
 import { getErrorMessage } from "./lib/errors.js";
 import { logger } from "./lib/logger.js";
 import type { RateLimiter } from "./middleware/rateLimit.js";
 import type { EmailSender } from "./providers/email.js";
+import { createGoogleSignInService } from "./modules/auth/googleService.js";
 import { createAuthRouter } from "./modules/auth/routes.js";
 import { createResetService } from "./modules/auth/resetService.js";
 import type { PasswordResetRepository } from "./modules/auth/resetTypes.js";
@@ -27,6 +29,8 @@ export interface AppDependencies {
   passwords: PasswordService;
   emailSender: EmailSender;
   resetTtlMinutes: number;
+  googleAudience?: string;
+  googleJwks?: JWTVerifyGetKey;
 }
 
 async function runCheck(
@@ -101,7 +105,15 @@ export function createApp(deps: AppDependencies): Express {
     ttlMinutes: deps.resetTtlMinutes,
   });
 
-  app.use(createAuthRouter(deps.authService, resetService, deps.limiter));
+  const googleService = createGoogleSignInService({
+    authService: deps.authService,
+    audience: deps.googleAudience,
+    jwks: deps.googleJwks,
+  });
+
+  app.use(
+    createAuthRouter(deps.authService, resetService, deps.limiter, googleService),
+  );
   app.use(createTeamsRouter(deps.authService, deps.teamsService, deps.limiter));
 
   return app;

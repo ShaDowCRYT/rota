@@ -110,6 +110,10 @@ const envSchema = z.object({
     emptyToUndefined,
     z.url("SENTRY_DSN must be a valid URL").optional(),
   ),
+  GOOGLE_WEB_CLIENT_ID: z.preprocess(
+    emptyToUndefined,
+    z.string().trim().min(1).optional(),
+  ),
 });
 
 const parsed = envSchema.safeParse(process.env);

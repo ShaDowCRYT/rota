@@ -17,7 +17,10 @@ import type {
   RefreshTokenRecord,
   UserRecord,
 } from "../modules/auth/types.js";
-import { DuplicateEmailError } from "../modules/auth/types.js";
+import {
+  DuplicateEmailError,
+  DuplicateGoogleAccountError,
+} from "../modules/auth/types.js";
 import type {
   InviteRecord,
   InviteRole,
@@ -65,6 +68,9 @@ export const unusedAuthService: AuthService = {
     throw new Error("unused in this test");
   },
   async login() {
+    throw new Error("unused in this test");
+  },
+  async googleSignIn() {
     throw new Error("unused in this test");
   },
   async refresh() {
@@ -184,6 +190,8 @@ export class FakeRedis implements RedisLike {
 export class FakeAuthRepository implements AuthRepository {
   readonly byEmail = new Map<string, UserRecord>();
   readonly refreshTokenRecords: RefreshTokenRecord[] = [];
+  googleDuplicateAfterCreate = 0;
+  googleDuplicateAfterLink = 0;
 
   async findByEmail(email: string): Promise<UserRecord | undefined> {
     return this.byEmail.get(email);
@@ -193,13 +201,70 @@ export class FakeAuthRepository implements AuthRepository {
     return [...this.byEmail.values()].find((user) => user.id === id);
   }
 
+  async findByGoogleSub(googleSub: string): Promise<UserRecord | undefined> {
+    return [...this.byEmail.values()].find(
+      (user) => user.googleSub === googleSub,
+    );
+  }
+
   async createUser(email: string, passwordHash: string): Promise<UserRecord> {
     if (this.byEmail.has(email)) {
       throw new DuplicateEmailError();
     }
 
-    const user = { id: randomUUID(), email, passwordHash };
+    const user = { id: randomUUID(), email, passwordHash, googleSub: null };
     this.byEmail.set(email, user);
+    return user;
+  }
+
+  async createGoogleUser(email: string, googleSub: string): Promise<UserRecord> {
+    if (
+      this.byEmail.has(email) ||
+      (await this.findByGoogleSub(googleSub)) !== undefined
+    ) {
+      throw new DuplicateGoogleAccountError();
+    }
+
+    const user = { id: randomUUID(), email, passwordHash: null, googleSub };
+    this.byEmail.set(email, user);
+
+    if (this.googleDuplicateAfterCreate > 0) {
+      this.googleDuplicateAfterCreate -= 1;
+      throw new DuplicateGoogleAccountError();
+    }
+
+    return user;
+  }
+
+  async linkGoogleAccount(userId: string, googleSub: string): Promise<UserRecord> {
+    const user = await this.findById(userId);
+    if (user === undefined) {
+      throw new DuplicateGoogleAccountError();
+    }
+
+    if (
+      user.googleSub !== null &&
+      user.googleSub !== googleSub
+    ) {
+      throw new DuplicateGoogleAccountError();
+    }
+
+    if (
+      (await this.findByGoogleSub(googleSub)) !== undefined &&
+      user.googleSub !== googleSub
+    ) {
+      throw new DuplicateGoogleAccountError();
+    }
+
+    user.googleSub = googleSub;
+    user.passwordHash = null;
+    await this.revokeAllForUser(userId);
+
+    if (this.googleDuplicateAfterLink > 0) {
+      this.googleDuplicateAfterLink -= 1;
+      throw new DuplicateGoogleAccountError();
+    }
+
     return user;
   }
 

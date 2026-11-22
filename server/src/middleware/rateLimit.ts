@@ -108,6 +108,14 @@ export function refreshRateLimit(limiter: RateLimiter): RequestHandler {
   });
 }
 
+export function googleRateLimit(limiter: RateLimiter): RequestHandler {
+  return rateLimit(limiter, {
+    limit: 20,
+    windowSeconds: 900,
+    key: (req) => `rl:google:ip:${requestIp(req)}`,
+  });
+}
+
 export function loginEmailRateLimit(limiter: RateLimiter): RequestHandler {
   return rateLimit(limiter, {
     limit: 5,

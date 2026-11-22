@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { HttpError } from "../../lib/errors.js";
+import { logger } from "../../lib/logger.js";
 import {
   generateRefreshToken,
   hashRefreshToken,
@@ -9,16 +10,21 @@ import type {
   AuthRepository,
   AuthResult,
   AuthUser,
+  GoogleIdentity,
   PasswordService,
   TokenIssuer,
   TokenPair,
 } from "./types.js";
-import { DuplicateEmailError } from "./types.js";
+import { DuplicateEmailError, DuplicateGoogleAccountError } from "./types.js";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 function invalidRefreshError(): HttpError {
   return new HttpError(401, "Invalid or expired token");
+}
+
+function invalidGoogleSignInError(): HttpError {
+  return new HttpError(401, "Invalid Google sign-in");
 }
 
 export interface AuthServiceDeps {
@@ -31,6 +37,7 @@ export interface AuthServiceDeps {
 export interface AuthService {
   signup(email: string, password: string): Promise<AuthResult>;
   login(email: string, password: string): Promise<AuthResult>;
+  googleSignIn(identity: GoogleIdentity): Promise<AuthResult>;
   refresh(token: string): Promise<TokenPair>;
   logout(token: string): Promise<void>;
   logoutAll(userId: string): Promise<void>;
@@ -77,6 +84,56 @@ export function createAuthService(deps: AuthServiceDeps): AuthService {
     };
   };
 
+  const resolveGoogleUser = async (
+    identity: GoogleIdentity,
+  ): Promise<AuthUser> => {
+    const email = identity.email.trim().toLowerCase();
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const byGoogleSub = await deps.repository.findByGoogleSub(identity.googleSub);
+      if (byGoogleSub !== undefined) {
+        return { id: byGoogleSub.id, email: byGoogleSub.email };
+      }
+
+      const byEmail = await deps.repository.findByEmail(email);
+      if (byEmail !== undefined) {
+        if (
+          byEmail.googleSub !== null &&
+          byEmail.googleSub !== identity.googleSub
+        ) {
+          throw invalidGoogleSignInError();
+        }
+
+        try {
+          const linked = await deps.repository.withTransaction((repository) =>
+            repository.linkGoogleAccount(byEmail.id, identity.googleSub),
+          );
+          return { id: linked.id, email: linked.email };
+        } catch (error) {
+          if (error instanceof DuplicateGoogleAccountError) {
+            continue;
+          }
+          throw error;
+        }
+      }
+
+      try {
+        const created = await deps.repository.createGoogleUser(
+          email,
+          identity.googleSub,
+        );
+        return { id: created.id, email: created.email };
+      } catch (error) {
+        if (error instanceof DuplicateGoogleAccountError) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw invalidGoogleSignInError();
+  };
+
   return {
     async signup(email, password) {
       const passwordHash = await deps.passwords.hash(password);
@@ -104,6 +161,13 @@ export function createAuthService(deps: AuthServiceDeps): AuthService {
       }
 
       return issueAuthResult({ id: user.id, email: user.email });
+    },
+
+    async googleSignIn(identity) {
+      const user = await resolveGoogleUser(identity);
+      const result = await issueAuthResult(user);
+      logger.info("google sign-in succeeded", { userId: user.id });
+      return result;
     },
 
     async refresh(token) {

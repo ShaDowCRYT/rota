@@ -5,6 +5,7 @@ import { requireAuth } from "../../middleware/auth.js";
 import {
   forgotEmailRateLimit,
   forgotIpRateLimit,
+  googleRateLimit,
   loginEmailRateLimit,
   loginIpRateLimit,
   refreshRateLimit,
@@ -12,9 +13,11 @@ import {
   signupRateLimit,
   type RateLimiter,
 } from "../../middleware/rateLimit.js";
+import type { GoogleSignInService } from "./googleService.js";
 import {
   credentialsSchema,
   forgotPasswordSchema,
+  googleIdTokenSchema,
   refreshTokenSchema,
   resetPasswordSchema,
 } from "./schema.js";
@@ -25,6 +28,7 @@ export function createAuthRouter(
   service: AuthService,
   resetService: ResetService,
   limiter: RateLimiter,
+  googleService: GoogleSignInService,
 ): Router {
   const router = Router();
 
@@ -59,6 +63,24 @@ export function createAuthRouter(
 
       try {
         res.json(await service.login(parsed.data.email, parsed.data.password));
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  router.post(
+    "/auth/google",
+    googleRateLimit(limiter),
+    async (req, res, next) => {
+      const parsed = googleIdTokenSchema.safeParse(req.body);
+      if (!parsed.success) {
+        next(new HttpError(400, "Invalid request"));
+        return;
+      }
+
+      try {
+        res.json(await googleService.signIn(parsed.data.idToken));
       } catch (error) {
         next(error);
       }
