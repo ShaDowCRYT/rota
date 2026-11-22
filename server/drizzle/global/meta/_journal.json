@@ -15,6 +15,13 @@
       "when": 1795112524455,
       "tag": "0001_smart_golden_guardian",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795342444950,
+      "tag": "0002_teams_invites_reset",
+      "breakpoints": true
     }
   ]
 }
