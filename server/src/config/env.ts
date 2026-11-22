@@ -98,6 +98,14 @@ const envSchema = z.object({
     emptyToUndefined,
     z.coerce.number().int().min(1).max(90).default(30),
   ),
+  INVITE_TTL_DAYS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().min(1).max(30).default(7),
+  ),
+  RESET_TOKEN_TTL_MINUTES: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().min(1).max(1440).default(30),
+  ),
   SENTRY_DSN: z.preprocess(
     emptyToUndefined,
     z.url("SENTRY_DSN must be a valid URL").optional(),
