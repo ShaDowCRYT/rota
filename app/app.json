@@ -7,11 +7,29 @@
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "android": {
+      "package": "com.shadowcryt.rota",
       "predictiveBackGestureEnabled": false
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store"
-    ]
+      "expo-secure-store",
+      [
+        "react-native-nitro-google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.937949466731-h1e9hrphbpnabvmi10tbl16t6se2b0jf"
+        }
+      ]
+    ],
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "009dcb80-1175-465f-acbc-c57548985f51"
+      }
+    },
+    "owner": "shadoweeee"
   }
 }
