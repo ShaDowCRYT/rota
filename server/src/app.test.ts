@@ -8,9 +8,14 @@ import {
   type RedisCheck,
 } from "./app.js";
 import {
+  createFakePasswords,
   permissiveLimiter,
   startServer,
+  testResetTtlMinutes,
   unusedAuthService,
+  unusedEmailSender,
+  unusedPasswordResetRepository,
+  unusedTeamsService,
 } from "./test/helpers.js";
 
 const databaseFailureMessage = "database password is wrong";
@@ -31,6 +36,11 @@ function appWith(database: DatabaseCheck, redis: RedisCheck) {
     checkRedis: redis,
     authService: unusedAuthService,
     limiter: permissiveLimiter,
+    teamsService: unusedTeamsService,
+    resetRepository: unusedPasswordResetRepository,
+    passwords: createFakePasswords(),
+    emailSender: unusedEmailSender,
+    resetTtlMinutes: testResetTtlMinutes,
   });
 }
 

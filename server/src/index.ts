@@ -4,6 +4,7 @@ import { createApp } from "./app.js";
 import { env } from "./config/env.js";
 import { createDb } from "./db/client.js";
 import { checkDatabase, closePool, getPool } from "./db/pool.js";
+import { configureShards } from "./db/shard.js";
 import { getErrorMessage } from "./lib/errors.js";
 import { logger } from "./lib/logger.js";
 import { createPasswordService } from "./lib/password.js";
@@ -11,18 +12,27 @@ import { checkRedis, closeRedis, getRedis } from "./lib/redis.js";
 import { initSentry } from "./lib/sentry.js";
 import { createTokenIssuer } from "./lib/tokens.js";
 import { errorHandler } from "./middleware/errorHandler.js";
-import { createRedisFixedWindowLimiter } from "./middleware/rateLimit.js";
+import {
+  createRedisFixedWindowLimiter,
+  type RedisLike,
+} from "./middleware/rateLimit.js";
 import { createAuthRepository } from "./modules/auth/repository.js";
+import { createPasswordResetRepository } from "./modules/auth/resetRepository.js";
 import { createAuthService } from "./modules/auth/service.js";
+import { createTeamsRepository } from "./modules/teams/repository.js";
+import { createTeamsService } from "./modules/teams/service.js";
+import { createDevEmailSender } from "./providers/email.js";
 
 initSentry({ dsn: env.SENTRY_DSN, environment: env.NODE_ENV });
 
 const database = createDb(getPool());
 const redis = getRedis(env.REDIS_URL);
+configureShards([database]);
 
+const passwords = createPasswordService();
 const authService = createAuthService({
   repository: createAuthRepository(database),
-  passwords: createPasswordService(),
+  passwords,
   tokens: createTokenIssuer({
     secret: env.JWT_ACCESS_SECRET,
     ttlSeconds: env.ACCESS_TOKEN_TTL_SECONDS,
@@ -30,11 +40,29 @@ const authService = createAuthService({
   refreshTtlDays: env.REFRESH_TOKEN_TTL_DAYS,
 });
 
+const teamsService = createTeamsService({
+  repository: createTeamsRepository(database),
+  authService,
+  inviteTtlDays: env.INVITE_TTL_DAYS,
+});
+
+const limiterRedis: RedisLike = {
+  incr: (key) => redis.incr(key),
+  expire: (key, seconds) => redis.expire(key, seconds),
+  eval: (script, keys, args) =>
+    redis.eval(script, keys.length, ...keys, ...args) as Promise<number>,
+};
+
 const app = createApp({
   checkDatabase,
   checkRedis: () => checkRedis(env.REDIS_URL),
   authService,
-  limiter: createRedisFixedWindowLimiter(redis),
+  limiter: createRedisFixedWindowLimiter(limiterRedis),
+  teamsService,
+  resetRepository: createPasswordResetRepository(database),
+  passwords,
+  emailSender: createDevEmailSender(env.NODE_ENV),
+  resetTtlMinutes: env.RESET_TOKEN_TTL_MINUTES,
 });
 
 Sentry.setupExpressErrorHandler(app);

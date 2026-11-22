@@ -5,6 +5,11 @@ import type { Express } from "express";
 
 import { errorHandler } from "../middleware/errorHandler.js";
 import type { RateLimiter, RedisLike } from "../middleware/rateLimit.js";
+import type { EmailMessage, EmailSender } from "../providers/email.js";
+import type {
+  PasswordResetRepository,
+  PasswordResetTokenRecord,
+} from "../modules/auth/resetTypes.js";
 import type { AuthService } from "../modules/auth/service.js";
 import type {
   AuthRepository,
@@ -13,6 +18,18 @@ import type {
   UserRecord,
 } from "../modules/auth/types.js";
 import { DuplicateEmailError } from "../modules/auth/types.js";
+import type {
+  InviteRecord,
+  InviteRole,
+  MemberRecord,
+  MembershipRecord,
+  NewInviteRecord,
+  Role,
+  TeamRecord,
+  TeamSummary,
+  TeamsRepository,
+  TeamsService,
+} from "../modules/teams/types.js";
 
 export const testTokenConfig = {
   secret: "test-only-secret-that-is-long-enough-for-hs256",
@@ -20,6 +37,7 @@ export const testTokenConfig = {
 };
 
 export const testRefreshTtlDays = 30;
+export const testResetTtlMinutes = 30;
 
 export function startServer(
   app: Express,
@@ -60,6 +78,58 @@ export const unusedAuthService: AuthService = {
   async loadUserById() {
     return undefined;
   },
+  async loadUserByEmail() {
+    return undefined;
+  },
+  async setPasswordHash() {},
+};
+
+export const unusedEmailSender: EmailSender = {
+  async send() {},
+};
+
+export const unusedPasswordResetRepository: PasswordResetRepository = {
+  async invalidateUnusedForUser() {},
+  async create() {
+    throw new Error("unused in this test");
+  },
+  async findByHash() {
+    return undefined;
+  },
+  async consume() {
+    return undefined;
+  },
+  async release() {},
+};
+
+export const unusedTeamsService: TeamsService = {
+  async createTeam() {
+    throw new Error("unused in this test");
+  },
+  async listTeams() {
+    return [];
+  },
+  async getTeam() {
+    throw new Error("unused in this test");
+  },
+  async getMembership() {
+    return undefined;
+  },
+  async getMembers() {
+    return [];
+  },
+  async changeRole() {},
+  async removeMember() {},
+  async createInvite() {
+    throw new Error("unused in this test");
+  },
+  async listInvites() {
+    return [];
+  },
+  async revokeInvite() {},
+  async acceptInvite() {
+    throw new Error("unused in this test");
+  },
 };
 
 export class FakeRedis implements RedisLike {
@@ -82,6 +152,24 @@ export class FakeRedis implements RedisLike {
     this.expireCalls += 1;
     this.expiries.set(key, seconds);
     return 1;
+  }
+
+  async eval(
+    _script: string,
+    keys: readonly string[],
+    args: readonly (string | number)[],
+  ): Promise<number> {
+    const key = keys[0];
+    const seconds = Number(args[0]);
+    if (key === undefined || !Number.isInteger(seconds)) {
+      throw new Error("invalid eval arguments");
+    }
+
+    const count = await this.incr(key);
+    if (count === 1) {
+      await this.expire(key, seconds);
+    }
+    return count;
   }
 
   keys(): string[] {
@@ -178,6 +266,14 @@ export class FakeAuthRepository implements AuthRepository {
     }
   }
 
+  async updatePasswordHash(userId: string, passwordHash: string): Promise<void> {
+    for (const user of this.byEmail.values()) {
+      if (user.id === userId) {
+        user.passwordHash = passwordHash;
+      }
+    }
+  }
+
   async withTransaction<T>(
     work: (repository: AuthRepository) => Promise<T>,
   ): Promise<T> {
@@ -203,4 +299,229 @@ export function createFakePasswords(): CountingPasswordService {
       return passwordHash === `fake:${password}`;
     },
   };
+}
+
+export class FakePasswordResetRepository
+  implements PasswordResetRepository
+{
+  readonly tokens = new Map<string, PasswordResetTokenRecord>();
+
+  async invalidateUnusedForUser(userId: string): Promise<void> {
+    for (const token of this.tokens.values()) {
+      if (token.userId === userId && token.usedAt === null) {
+        token.usedAt = new Date();
+      }
+    }
+  }
+
+  async create(
+    userId: string,
+    tokenHash: string,
+    expiresAt: Date,
+  ): Promise<PasswordResetTokenRecord> {
+    const record: PasswordResetTokenRecord = {
+      id: randomUUID(),
+      userId,
+      tokenHash,
+      expiresAt,
+      usedAt: null,
+      createdAt: new Date(),
+    };
+    this.tokens.set(record.id, record);
+    return record;
+  }
+
+  async findByHash(
+    tokenHash: string,
+  ): Promise<PasswordResetTokenRecord | undefined> {
+    return [...this.tokens.values()].find(
+      (token) => token.tokenHash === tokenHash,
+    );
+  }
+
+  async consume(id: string): Promise<PasswordResetTokenRecord | undefined> {
+    const record = this.tokens.get(id);
+    if (
+      record === undefined ||
+      record.usedAt !== null ||
+      record.expiresAt <= new Date()
+    ) {
+      return undefined;
+    }
+    record.usedAt = new Date();
+    return record;
+  }
+
+  async release(id: string): Promise<void> {
+    const record = this.tokens.get(id);
+    if (record !== undefined) {
+      record.usedAt = null;
+    }
+  }
+}
+
+export class FakeEmailSender implements EmailSender {
+  readonly messages: EmailMessage[] = [];
+
+  async send(message: EmailMessage): Promise<void> {
+    this.messages.push(message);
+  }
+}
+
+export class FakeTeamsRepository implements TeamsRepository {
+  readonly teams = new Map<string, TeamRecord>();
+  readonly memberships = new Map<string, MembershipRecord>();
+  readonly userTeams: Array<{ userId: string; teamId: string }> = [];
+  readonly invites = new Map<string, InviteRecord>();
+
+  private membershipKey(teamId: string, userId: string): string {
+    return `${teamId}:${userId}`;
+  }
+
+  async createTeamWithOwner(userId: string, name: string): Promise<TeamRecord> {
+    const team = { id: randomUUID(), name };
+    this.teams.set(team.id, team);
+    this.memberships.set(this.membershipKey(team.id, userId), {
+      teamId: team.id,
+      userId,
+      role: "owner",
+    });
+    this.userTeams.push({ userId, teamId: team.id });
+    return team;
+  }
+
+  async listTeamsForUser(userId: string): Promise<TeamSummary[]> {
+    return this.userTeams.flatMap(({ teamId }) => {
+      const team = this.teams.get(teamId);
+      const membership = this.memberships.get(this.membershipKey(teamId, userId));
+      if (team === undefined || membership === undefined) return [];
+      return [{ ...team, role: membership.role }];
+    });
+  }
+
+  async findTeam(teamId: string): Promise<TeamRecord | undefined> {
+    return this.teams.get(teamId);
+  }
+
+  async findMembership(
+    teamId: string,
+    userId: string,
+  ): Promise<MembershipRecord | undefined> {
+    return this.memberships.get(this.membershipKey(teamId, userId));
+  }
+
+  async createMembership(
+    teamId: string,
+    userId: string,
+    role: Role,
+  ): Promise<boolean> {
+    const key = this.membershipKey(teamId, userId);
+    if (this.memberships.has(key)) return false;
+    this.memberships.set(key, { teamId, userId, role });
+    return true;
+  }
+
+  async listMemberships(teamId: string): Promise<MemberRecord[]> {
+    return [...this.memberships.values()]
+      .filter((membership) => membership.teamId === teamId)
+      .map(({ userId, role }) => ({ userId, role }));
+  }
+
+  async updateRole(
+    teamId: string,
+    userId: string,
+    role: InviteRole,
+  ): Promise<void> {
+    const membership = this.memberships.get(this.membershipKey(teamId, userId));
+    if (membership !== undefined) {
+      membership.role = role;
+    }
+  }
+
+  async removeMembership(teamId: string, userId: string): Promise<void> {
+    this.memberships.delete(this.membershipKey(teamId, userId));
+  }
+
+  async addUserTeam(userId: string, teamId: string): Promise<void> {
+    if (
+      !this.userTeams.some(
+        (entry) => entry.userId === userId && entry.teamId === teamId,
+      )
+    ) {
+      this.userTeams.push({ userId, teamId });
+    }
+  }
+
+  async removeUserTeam(userId: string, teamId: string): Promise<void> {
+    const index = this.userTeams.findIndex(
+      (entry) => entry.userId === userId && entry.teamId === teamId,
+    );
+    if (index !== -1) {
+      this.userTeams.splice(index, 1);
+    }
+  }
+
+  async createInvite(invite: NewInviteRecord): Promise<InviteRecord> {
+    const record: InviteRecord = {
+      ...invite,
+      id: randomUUID(),
+      usedAt: null,
+      revokedAt: null,
+      createdAt: new Date(),
+    };
+    this.invites.set(record.id, record);
+    return record;
+  }
+
+  async findInviteByTokenHash(
+    tokenHash: string,
+  ): Promise<InviteRecord | undefined> {
+    return [...this.invites.values()].find(
+      (invite) => invite.tokenHash === tokenHash,
+    );
+  }
+
+  async consumeInvite(id: string): Promise<InviteRecord | undefined> {
+    const invite = this.invites.get(id);
+    if (
+      invite === undefined ||
+      invite.usedAt !== null ||
+      invite.revokedAt !== null ||
+      invite.expiresAt <= new Date()
+    ) {
+      return undefined;
+    }
+    invite.usedAt = new Date();
+    return invite;
+  }
+
+  async releaseInvite(id: string): Promise<void> {
+    const invite = this.invites.get(id);
+    if (invite !== undefined) {
+      invite.usedAt = null;
+    }
+  }
+
+  async listInvites(teamId: string) {
+    return [...this.invites.values()]
+      .filter((invite) => invite.teamId === teamId)
+      .map((invite) => ({
+        id: invite.id,
+        teamId: invite.teamId,
+        invitedBy: invite.invitedBy,
+        email: invite.email,
+        role: invite.role,
+        expiresAt: invite.expiresAt,
+        usedAt: invite.usedAt,
+        revokedAt: invite.revokedAt,
+        createdAt: invite.createdAt,
+      }));
+  }
+
+  async revokeInvite(teamId: string, inviteId: string): Promise<void> {
+    const invite = this.invites.get(inviteId);
+    if (invite !== undefined && invite.teamId === teamId) {
+      invite.revokedAt = new Date();
+    }
+  }
 }

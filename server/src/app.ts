@@ -5,8 +5,14 @@ import express, { type Express } from "express";
 import { getErrorMessage } from "./lib/errors.js";
 import { logger } from "./lib/logger.js";
 import type { RateLimiter } from "./middleware/rateLimit.js";
+import type { EmailSender } from "./providers/email.js";
 import { createAuthRouter } from "./modules/auth/routes.js";
+import { createResetService } from "./modules/auth/resetService.js";
+import type { PasswordResetRepository } from "./modules/auth/resetTypes.js";
 import type { AuthService } from "./modules/auth/service.js";
+import type { PasswordService } from "./modules/auth/types.js";
+import { createTeamsRouter } from "./modules/teams/routes.js";
+import type { TeamsService } from "./modules/teams/types.js";
 
 export type DatabaseCheck = () => Promise<void>;
 export type RedisCheck = () => Promise<boolean>;
@@ -16,6 +22,11 @@ export interface AppDependencies {
   checkRedis: RedisCheck;
   authService: AuthService;
   limiter: RateLimiter;
+  teamsService: TeamsService;
+  resetRepository: PasswordResetRepository;
+  passwords: PasswordService;
+  emailSender: EmailSender;
+  resetTtlMinutes: number;
 }
 
 async function runCheck(
@@ -82,7 +93,16 @@ export function createApp(deps: AppDependencies): Express {
     res.status(503).json({ status: "error", ...dependencies });
   });
 
-  app.use(createAuthRouter(deps.authService, deps.limiter));
+  const resetService = createResetService({
+    repository: deps.resetRepository,
+    authService: deps.authService,
+    passwords: deps.passwords,
+    emailSender: deps.emailSender,
+    ttlMinutes: deps.resetTtlMinutes,
+  });
+
+  app.use(createAuthRouter(deps.authService, resetService, deps.limiter));
+  app.use(createTeamsRouter(deps.authService, deps.teamsService, deps.limiter));
 
   return app;
 }
