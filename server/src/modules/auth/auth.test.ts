@@ -12,7 +12,11 @@ import {
   FakeRedis,
   startServer,
   testRefreshTtlDays,
+  testResetTtlMinutes,
   testTokenConfig,
+  unusedEmailSender,
+  unusedPasswordResetRepository,
+  unusedTeamsService,
 } from "../../test/helpers.js";
 import {
   generateRefreshToken,
@@ -43,6 +47,11 @@ function setup(ttlSeconds = testTokenConfig.ttlSeconds) {
     checkRedis: () => Promise.resolve(true),
     authService,
     limiter: createRedisFixedWindowLimiter(redis),
+    teamsService: unusedTeamsService,
+    resetRepository: unusedPasswordResetRepository,
+    passwords,
+    emailSender: unusedEmailSender,
+    resetTtlMinutes: testResetTtlMinutes,
   });
 
   return { repository, passwords, tokens, app, redis };

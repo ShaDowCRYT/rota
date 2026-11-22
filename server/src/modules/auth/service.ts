@@ -36,6 +36,8 @@ export interface AuthService {
   logoutAll(userId: string): Promise<void>;
   verifyAccessToken(token: string): Promise<string | undefined>;
   loadUserById(id: string): Promise<AuthUser | undefined>;
+  loadUserByEmail(email: string): Promise<AuthUser | undefined>;
+  setPasswordHash(userId: string, passwordHash: string): Promise<void>;
 }
 
 export function createAuthService(deps: AuthServiceDeps): AuthService {
@@ -176,6 +178,15 @@ export function createAuthService(deps: AuthServiceDeps): AuthService {
     async loadUserById(id) {
       const user = await deps.repository.findById(id);
       return user === undefined ? undefined : { id: user.id, email: user.email };
+    },
+
+    async loadUserByEmail(email) {
+      const user = await deps.repository.findByEmail(email);
+      return user === undefined ? undefined : { id: user.id, email: user.email };
+    },
+
+    setPasswordHash(userId, passwordHash) {
+      return deps.repository.updatePasswordHash(userId, passwordHash);
     },
   };
 }

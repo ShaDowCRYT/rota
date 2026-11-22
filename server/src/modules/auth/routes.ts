@@ -3,17 +3,27 @@ import { Router } from "express";
 import { HttpError } from "../../lib/errors.js";
 import { requireAuth } from "../../middleware/auth.js";
 import {
+  forgotEmailRateLimit,
+  forgotIpRateLimit,
   loginEmailRateLimit,
   loginIpRateLimit,
   refreshRateLimit,
+  resetRateLimit,
   signupRateLimit,
   type RateLimiter,
 } from "../../middleware/rateLimit.js";
-import { credentialsSchema, refreshTokenSchema } from "./schema.js";
+import {
+  credentialsSchema,
+  forgotPasswordSchema,
+  refreshTokenSchema,
+  resetPasswordSchema,
+} from "./schema.js";
+import type { ResetService } from "./resetService.js";
 import type { AuthService } from "./service.js";
 
 export function createAuthRouter(
   service: AuthService,
+  resetService: ResetService,
   limiter: RateLimiter,
 ): Router {
   const router = Router();
@@ -99,6 +109,47 @@ export function createAuthRouter(
 
       try {
         await service.logoutAll(req.user.id);
+        res.status(204).end();
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  router.post(
+    "/auth/forgot",
+    forgotIpRateLimit(limiter),
+    forgotEmailRateLimit(limiter),
+    async (req, res, next) => {
+      const parsed = forgotPasswordSchema.safeParse(req.body);
+      if (!parsed.success) {
+        next(new HttpError(400, "Invalid request"));
+        return;
+      }
+
+      try {
+        await resetService.requestReset(parsed.data.email);
+        res.status(202).json({
+          message: "If that email exists, a reset link has been sent.",
+        });
+      } catch (error) {
+        next(error);
+      }
+    },
+  );
+
+  router.post(
+    "/auth/reset",
+    resetRateLimit(limiter),
+    async (req, res, next) => {
+      const parsed = resetPasswordSchema.safeParse(req.body);
+      if (!parsed.success) {
+        next(new HttpError(400, "Invalid request"));
+        return;
+      }
+
+      try {
+        await resetService.reset(parsed.data.token, parsed.data.newPassword);
         res.status(204).end();
       } catch (error) {
         next(error);

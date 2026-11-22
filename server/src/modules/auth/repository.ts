@@ -140,6 +140,13 @@ export function createAuthRepository(
         );
     },
 
+    async updatePasswordHash(userId, passwordHash) {
+      await client
+        .update(users)
+        .set({ passwordHash, updatedAt: sql`now()` })
+        .where(eq(users.id, userId));
+    },
+
     withTransaction(work) {
       return db.transaction((tx) => work(createAuthRepository(db, tx)));
     },

@@ -43,6 +43,7 @@ export interface AuthRepository {
   consumeRefreshToken(id: string): Promise<RefreshTokenRecord | undefined>;
   revokeFamily(familyId: string): Promise<void>;
   revokeAllForUser(userId: string): Promise<void>;
+  updatePasswordHash(userId: string, passwordHash: string): Promise<void>;
   withTransaction<T>(
     work: (repository: AuthRepository) => Promise<T>,
   ): Promise<T>;
