@@ -135,6 +135,8 @@ Finish every task with:
 - A simple-English summary of what was built, how to approach building it from scratch, and a plain re-explanation of the task.
 - A reminder for the developer to write their own paragraph in `LEARNING-LOG.md` without AI.
 
+Follow docs/WORKFLOW.md for every task. Run: node scripts/verify.mjs
+
 ## 7. What to do when unsure
 
 Stop and ask. Never guess.
