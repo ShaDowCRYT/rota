@@ -27,6 +27,15 @@ export function isPayloadTooLarge(error: unknown): boolean {
   );
 }
 
+export function isMalformedJson(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "type" in error &&
+    error.type === "entity.parse.failed"
+  );
+}
+
 export function getPostgresErrorCode(error: unknown): string | undefined {
   let current = error;
   const visited = new Set<unknown>();
