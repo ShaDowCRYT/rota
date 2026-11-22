@@ -164,3 +164,19 @@ The mobile app's error handling was also improved. It now displays "Something we
 The app only displays "Can't reach the server" when it receives no response at all, such as when the server is unreachable.
 
 In simple terms: This task fixed how Rota handles duplicate email addresses and improved how the app explains connection problems. It prevents normal errors from being mistaken for server crashes or internet problems.
+
+## 2026-11-22: Phase 1, teams, invites, password resets, and shard routing
+
+The Rota server now supports teams, user roles, data isolation, invitations, password resets, and shard routing. Redis rate limiting was also added to protect important endpoints.
+
+The server now controls which teams users belong to and what actions they are allowed to perform. It checks user roles from the database before allowing restricted actions.
+
+Users can create teams, send invitations through deep links, and accept invitations. Password reset links are also supported, with tokens that expire and can only be used once.
+
+Some important security decisions were made. Only authenticated users can create teams, and breaking owner-role rules results in a 403 error.
+
+Invitation tokens are consumed before membership is created. If something fails during the process, the server attempts to reverse the changes. Invitations currently return a deep link, but no email is sent yet.
+
+Finally, malformed JSON requests return a 400 error, and Redis rate limiting uses an atomic operation to prevent incorrect request counts.
+
+In simple terms: Rota's backend can now manage teams, control user permissions, keep team data separate, and handle invitations and password resets securely.
