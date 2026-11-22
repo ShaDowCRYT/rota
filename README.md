@@ -71,6 +71,7 @@ You need the server running first (see "How to run the server locally" above) an
    ```
 
 5. Scan the QR code with Expo Go.
+6. For an Android development build that includes native Google sign-in, run `npx expo start --dev-client -c` instead of `npx expo start -c`, then open the app from that build.
 
 **After you change `app/.env`**, stop Expo and start it again with `npx expo start -c`. Expo reads environment variables only when it starts, and `-c` clears its cache, so an old value would otherwise stay in use.
 
@@ -88,12 +89,14 @@ Anything starting with `EXPO_PUBLIC_` is bundled into the app and can be read by
 | Variable | Why it is safe to expose |
 |---|---|
 | `EXPO_PUBLIC_API_URL` | It is only the server's address. It is not a secret, and the server checks every request anyway. |
+| `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` | It identifies Rota's Google OAuth client. It is a public client ID, not a password or private key. |
 
 ## App environment variables
 
 | Name | Why it is safe |
 | --- | --- |
 | `EXPO_PUBLIC_API_URL` | It is only the server address the app connects to. It is not a password, token, or secret key, so it is safe to include in the app bundle. |
+| `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` | It is a public OAuth client ID used by the app to ask Google for an ID token. It is not a secret. |
 
 ## Production note: app store billing rules
 
