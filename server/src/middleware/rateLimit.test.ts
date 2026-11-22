@@ -10,7 +10,11 @@ import {
   FakeRedis,
   startServer,
   testRefreshTtlDays,
+  testResetTtlMinutes,
   testTokenConfig,
+  unusedEmailSender,
+  unusedPasswordResetRepository,
+  unusedTeamsService,
 } from "../test/helpers.js";
 import { createAuthService } from "../modules/auth/service.js";
 import {
@@ -35,6 +39,11 @@ function setup() {
     checkRedis: () => Promise.resolve(true),
     authService,
     limiter: createRedisFixedWindowLimiter(redis),
+    teamsService: unusedTeamsService,
+    resetRepository: unusedPasswordResetRepository,
+    passwords: createFakePasswords(),
+    emailSender: unusedEmailSender,
+    resetTtlMinutes: testResetTtlMinutes,
   });
 
   return { app, redis };
@@ -86,6 +95,9 @@ describe("redis fixed-window limiter", () => {
       },
       async expire() {
         return 1;
+      },
+      async eval() {
+        throw new Error("redis connection refused");
       },
     };
     const write = vi.spyOn(process.stderr, "write").mockImplementation(() => true);

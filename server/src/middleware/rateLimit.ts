@@ -8,6 +8,11 @@ import { logger } from "../lib/logger.js";
 export interface RedisLike {
   incr(key: string): Promise<number>;
   expire(key: string, seconds: number): Promise<number>;
+  eval(
+    script: string,
+    keys: readonly string[],
+    args: readonly (string | number)[],
+  ): Promise<number>;
 }
 
 export interface RateLimiter {
@@ -20,25 +25,25 @@ export interface RateLimitOptions {
   key: (req: Request) => string;
 }
 
+const consumeScript = `
+local count = redis.call("INCR", KEYS[1])
+if count == 1 then
+  redis.call("EXPIRE", KEYS[1], ARGV[1])
+end
+return count
+`;
+
 export function createRedisFixedWindowLimiter(redis: RedisLike): RateLimiter {
   return {
     async consume(key, limit, windowSeconds) {
       let count: number;
-      let expirySet = true;
 
       try {
-        count = await redis.incr(key);
-        if (count === 1) {
-          expirySet = (await redis.expire(key, windowSeconds)) === 1;
-        }
+        count = await redis.eval(consumeScript, [key], [windowSeconds]);
       } catch (error) {
         logger.error("redis rate limit check failed", {
           error: getErrorMessage(error),
         });
-        throw new HttpError(503, "Service unavailable");
-      }
-
-      if (!expirySet) {
         throw new HttpError(503, "Service unavailable");
       }
 
@@ -115,5 +120,52 @@ export function loginEmailRateLimit(limiter: RateLimiter): RequestHandler {
           : "";
       return `rl:login:email:${emailRateKey(email)}`;
     },
+  });
+}
+
+export function inviteCreateRateLimit(limiter: RateLimiter): RequestHandler {
+  return rateLimit(limiter, {
+    limit: 30,
+    windowSeconds: 3600,
+    key: (req) => `rl:invite:create:user:${req.user?.id ?? "unknown"}`,
+  });
+}
+
+export function inviteAcceptRateLimit(limiter: RateLimiter): RequestHandler {
+  return rateLimit(limiter, {
+    limit: 20,
+    windowSeconds: 900,
+    key: (req) => `rl:invite:accept:ip:${requestIp(req)}`,
+  });
+}
+
+export function forgotIpRateLimit(limiter: RateLimiter): RequestHandler {
+  return rateLimit(limiter, {
+    limit: 5,
+    windowSeconds: 3600,
+    key: (req) => `rl:forgot:ip:${requestIp(req)}`,
+  });
+}
+
+export function forgotEmailRateLimit(limiter: RateLimiter): RequestHandler {
+  return rateLimit(limiter, {
+    limit: 3,
+    windowSeconds: 3600,
+    key: (req) => {
+      const body: unknown = req.body;
+      const email =
+        typeof body === "object" && body !== null && "email" in body && typeof body.email === "string"
+          ? body.email
+          : "";
+      return `rl:forgot:email:${emailRateKey(email)}`;
+    },
+  });
+}
+
+export function resetRateLimit(limiter: RateLimiter): RequestHandler {
+  return rateLimit(limiter, {
+    limit: 10,
+    windowSeconds: 900,
+    key: (req) => `rl:reset:ip:${requestIp(req)}`,
   });
 }

@@ -4,6 +4,7 @@ import { ZodError } from "zod";
 import {
   getErrorMessage,
   HttpError,
+  isMalformedJson,
   isPayloadTooLarge,
 } from "../lib/errors.js";
 import { logger } from "../lib/logger.js";
@@ -27,7 +28,11 @@ export function errorHandler(
     return;
   }
 
-  if (error instanceof ZodError || isPayloadTooLarge(error)) {
+  if (
+    error instanceof ZodError ||
+    isPayloadTooLarge(error) ||
+    isMalformedJson(error)
+  ) {
     res.status(400).json({ error: "Invalid request" });
     return;
   }
