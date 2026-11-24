@@ -16,6 +16,9 @@ import {
   testRefreshTtlDays,
   testResetTtlMinutes,
   testTokenConfig,
+  unusedActivityService,
+  unusedShiftsService,
+  unusedSwapsService,
   unusedTeamsService,
 } from "../../test/helpers.js";
 import { createResetService } from "./resetService.js";
@@ -61,6 +64,9 @@ function setup() {
     authService,
     limiter: createRedisFixedWindowLimiter(redis),
     teamsService: unusedTeamsService,
+    activityService: unusedActivityService,
+    shiftsService: unusedShiftsService,
+    swapsService: unusedSwapsService,
     resetRepository,
     passwords,
     emailSender,

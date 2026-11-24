@@ -7,12 +7,18 @@ import { getErrorMessage } from "./lib/errors.js";
 import { logger } from "./lib/logger.js";
 import type { RateLimiter } from "./middleware/rateLimit.js";
 import type { EmailSender } from "./providers/email.js";
+import { createActivityRouter } from "./modules/activity/routes.js";
+import type { ActivityService } from "./modules/activity/types.js";
 import { createGoogleSignInService } from "./modules/auth/googleService.js";
 import { createAuthRouter } from "./modules/auth/routes.js";
 import { createResetService } from "./modules/auth/resetService.js";
 import type { PasswordResetRepository } from "./modules/auth/resetTypes.js";
 import type { AuthService } from "./modules/auth/service.js";
 import type { PasswordService } from "./modules/auth/types.js";
+import { createShiftsRouter } from "./modules/shifts/routes.js";
+import type { ShiftsService } from "./modules/shifts/types.js";
+import { createSwapsRouter } from "./modules/swaps/routes.js";
+import type { SwapsService } from "./modules/swaps/types.js";
 import { createTeamsRouter } from "./modules/teams/routes.js";
 import type { TeamsService } from "./modules/teams/types.js";
 
@@ -25,6 +31,9 @@ export interface AppDependencies {
   authService: AuthService;
   limiter: RateLimiter;
   teamsService: TeamsService;
+  activityService: ActivityService;
+  shiftsService: ShiftsService;
+  swapsService: SwapsService;
   resetRepository: PasswordResetRepository;
   passwords: PasswordService;
   emailSender: EmailSender;
@@ -115,6 +124,30 @@ export function createApp(deps: AppDependencies): Express {
     createAuthRouter(deps.authService, resetService, deps.limiter, googleService),
   );
   app.use(createTeamsRouter(deps.authService, deps.teamsService, deps.limiter));
+  app.use(
+    createActivityRouter(
+      deps.authService,
+      deps.activityService,
+      deps.teamsService,
+      deps.limiter,
+    ),
+  );
+  app.use(
+    createShiftsRouter(
+      deps.authService,
+      deps.shiftsService,
+      deps.teamsService,
+      deps.limiter,
+    ),
+  );
+  app.use(
+    createSwapsRouter(
+      deps.authService,
+      deps.swapsService,
+      deps.teamsService,
+      deps.limiter,
+    ),
+  );
 
   return app;
 }

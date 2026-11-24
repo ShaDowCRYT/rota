@@ -1,0 +1,1 @@
+CREATE INDEX "activity_events_team_created_id_idx" ON "activity_events" USING btree ("team_id","created_at" DESC NULLS LAST,"id" DESC NULLS LAST);

@@ -6,6 +6,7 @@ import { env } from "./config/env.js";
 import { createDb } from "./db/client.js";
 import { checkDatabase, closePool, getPool } from "./db/pool.js";
 import { configureShards } from "./db/shard.js";
+import { runShardTransaction } from "./db/transaction.js";
 import { getErrorMessage } from "./lib/errors.js";
 import { logger } from "./lib/logger.js";
 import { createPasswordService } from "./lib/password.js";
@@ -17,9 +18,15 @@ import {
   createRedisFixedWindowLimiter,
   type RedisLike,
 } from "./middleware/rateLimit.js";
+import { createActivityRepository } from "./modules/activity/repository.js";
+import { createActivityService } from "./modules/activity/service.js";
 import { createAuthRepository } from "./modules/auth/repository.js";
 import { createPasswordResetRepository } from "./modules/auth/resetRepository.js";
 import { createAuthService } from "./modules/auth/service.js";
+import { createShiftsRepository } from "./modules/shifts/repository.js";
+import { createShiftsService } from "./modules/shifts/service.js";
+import { createSwapsRepository } from "./modules/swaps/repository.js";
+import { createSwapsService } from "./modules/swaps/service.js";
 import { createTeamsRepository } from "./modules/teams/repository.js";
 import { createTeamsService } from "./modules/teams/service.js";
 import { createDevEmailSender } from "./providers/email.js";
@@ -47,6 +54,24 @@ const teamsService = createTeamsService({
   inviteTtlDays: env.INVITE_TTL_DAYS,
 });
 
+const activityService = createActivityService(createActivityRepository());
+
+const shiftsService = createShiftsService({
+  repository: createShiftsRepository(),
+  activity: activityService,
+  teamsService,
+  transactions: runShardTransaction,
+  now: () => new Date(),
+});
+
+const swapsService = createSwapsService({
+  repository: createSwapsRepository(),
+  activity: activityService,
+  teamsService,
+  transactions: runShardTransaction,
+  now: () => new Date(),
+});
+
 const limiterRedis: RedisLike = {
   incr: (key) => redis.incr(key),
   expire: (key, seconds) => redis.expire(key, seconds),
@@ -60,6 +85,9 @@ const app = createApp({
   authService,
   limiter: createRedisFixedWindowLimiter(limiterRedis),
   teamsService,
+  activityService,
+  shiftsService,
+  swapsService,
   resetRepository: createPasswordResetRepository(database),
   passwords,
   emailSender: createDevEmailSender(env.NODE_ENV),

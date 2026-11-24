@@ -17,8 +17,11 @@ import {
   testRefreshTtlDays,
   testResetTtlMinutes,
   testTokenConfig,
+  unusedActivityService,
   unusedEmailSender,
   unusedPasswordResetRepository,
+  unusedShiftsService,
+  unusedSwapsService,
 } from "../../test/helpers.js";
 import { createAuthService } from "../auth/service.js";
 import { createTeamsService } from "./service.js";
@@ -64,6 +67,9 @@ function setup() {
     authService,
     limiter: permissiveLimiter,
     teamsService,
+    activityService: unusedActivityService,
+    shiftsService: unusedShiftsService,
+    swapsService: unusedSwapsService,
     resetRepository: unusedPasswordResetRepository,
     passwords,
     emailSender: unusedEmailSender,

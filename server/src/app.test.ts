@@ -12,9 +12,12 @@ import {
   permissiveLimiter,
   startServer,
   testResetTtlMinutes,
+  unusedActivityService,
   unusedAuthService,
   unusedEmailSender,
   unusedPasswordResetRepository,
+  unusedShiftsService,
+  unusedSwapsService,
   unusedTeamsService,
 } from "./test/helpers.js";
 
@@ -37,6 +40,9 @@ function appWith(database: DatabaseCheck, redis: RedisCheck) {
     authService: unusedAuthService,
     limiter: permissiveLimiter,
     teamsService: unusedTeamsService,
+    activityService: unusedActivityService,
+    shiftsService: unusedShiftsService,
+    swapsService: unusedSwapsService,
     resetRepository: unusedPasswordResetRepository,
     passwords: createFakePasswords(),
     emailSender: unusedEmailSender,

@@ -3,6 +3,8 @@ import type { Server } from "node:http";
 
 import type { Express } from "express";
 
+import type { SqlExecutor, TransactionRunner } from "../db/types.js";
+import { createTokenIssuer } from "../lib/tokens.js";
 import { errorHandler } from "../middleware/errorHandler.js";
 import type { RateLimiter, RedisLike } from "../middleware/rateLimit.js";
 import type { EmailMessage, EmailSender } from "../providers/email.js";
@@ -10,6 +12,12 @@ import type {
   PasswordResetRepository,
   PasswordResetTokenRecord,
 } from "../modules/auth/resetTypes.js";
+import type {
+  ActivityEventInput,
+  ActivityRepository,
+  ActivityRow,
+  ActivityService,
+} from "../modules/activity/types.js";
 import type { AuthService } from "../modules/auth/service.js";
 import type {
   AuthRepository,
@@ -21,6 +29,29 @@ import {
   DuplicateEmailError,
   DuplicateGoogleAccountError,
 } from "../modules/auth/types.js";
+import { createActivityService } from "../modules/activity/service.js";
+import { createAuthService } from "../modules/auth/service.js";
+import { createShiftsService } from "../modules/shifts/service.js";
+import type {
+  NewShift,
+  ShiftRecord,
+  ShiftTimes,
+  ShiftUpdateResult,
+  ShiftsRepository,
+  ShiftsService,
+} from "../modules/shifts/types.js";
+import { createSwapsService } from "../modules/swaps/service.js";
+import { createTeamsService } from "../modules/teams/service.js";
+import type {
+  DecideOutcome,
+  ShiftForSwap,
+  NewSwapRequest,
+  SwapListFilter,
+  SwapRequestRecord,
+  SwapStatus,
+  SwapsRepository,
+  SwapsService,
+} from "../modules/swaps/types.js";
 import type {
   InviteRecord,
   InviteRole,
@@ -137,6 +168,438 @@ export const unusedTeamsService: TeamsService = {
     throw new Error("unused in this test");
   },
 };
+
+export const unusedActivityService: ActivityService = {
+  async list() {
+    return { items: [], nextCursor: null };
+  },
+  async record() {},
+};
+
+export const unusedShiftsService: ShiftsService = {
+  async create() {
+    throw new Error("unused in this test");
+  },
+  async list() {
+    return [];
+  },
+  async update() {
+    throw new Error("unused in this test");
+  },
+  async remove() {},
+};
+
+export const unusedSwapsService: SwapsService = {
+  async request() {
+    throw new Error("unused in this test");
+  },
+  async list() {
+    return [];
+  },
+  async decide() {
+    throw new Error("unused in this test");
+  },
+  async cancel() {},
+};
+
+export const fakeExecutor: SqlExecutor = {
+  async execute() {
+    return { rows: [] };
+  },
+};
+
+export const testTransactionRunner: TransactionRunner = (_teamId, work) =>
+  work(fakeExecutor);
+
+interface FakeActivityRow extends ActivityRow {
+  teamId: string;
+}
+
+const fakeTimestampPattern =
+  /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}(?::?\d{2})?)$/;
+
+export class FakeActivityRepository implements ActivityRepository {
+  readonly rows: FakeActivityRow[] = [];
+  private sequence = 0;
+
+  async append(_executor: SqlExecutor, event: ActivityEventInput): Promise<void> {
+    this.sequence += 1;
+    const micros = String(this.sequence).padStart(6, "0");
+    const createdAtText = `2026-01-01 00:00:00.${micros}+00`;
+    this.rows.push({
+      id: randomUUID(),
+      teamId: event.teamId,
+      type: event.type,
+      actorId: event.actorId,
+      payload: event.payload,
+      createdAtText,
+      createdAtDate: new Date(`2026-01-01T00:00:00.${micros}Z`),
+    });
+  }
+
+  async list(
+    teamId: string,
+    cursorTimeText: string | undefined,
+    cursorId: string | undefined,
+    limit: number,
+  ): Promise<{ rows: ActivityRow[]; hasMore: boolean }> {
+    let rows = this.rows.filter((row) => row.teamId === teamId);
+
+    if (cursorTimeText !== undefined && cursorId !== undefined) {
+      rows = rows.filter(
+        (row) =>
+          row.createdAtText < cursorTimeText ||
+          (row.createdAtText === cursorTimeText && row.id < cursorId),
+      );
+    }
+
+    rows.sort(
+      (left, right) =>
+        right.createdAtText.localeCompare(left.createdAtText) ||
+        right.id.localeCompare(left.id),
+    );
+
+    return {
+      rows: rows.slice(0, limit),
+      hasMore: rows.length > limit,
+    };
+  }
+
+  async cursorTimeIsValid(_teamId: string, text: string): Promise<boolean> {
+    return fakeTimestampPattern.test(text);
+  }
+}
+
+export class FakeShiftsRepository implements ShiftsRepository {
+  readonly shifts = new Map<string, ShiftRecord>();
+  pendingSwapIdToCancel: string | null = null;
+  swapsRepository?: FakeSwapsRepository;
+
+  async lockAssignee(): Promise<void> {}
+
+  async findOverlap(
+    _executor: SqlExecutor,
+    input: Parameters<ShiftsRepository["findOverlap"]>[1],
+  ): Promise<boolean> {
+    return [...this.shifts.values()].some(
+      (shift) =>
+        shift.teamId === input.teamId &&
+        shift.assigneeId === input.assigneeId &&
+        shift.id !== input.excludeShiftId &&
+        shift.startsAt < input.endsAt &&
+        shift.endsAt > input.startsAt,
+    );
+  }
+
+  async create(_executor: SqlExecutor, input: NewShift): Promise<ShiftRecord> {
+    const now = new Date();
+    const shift: ShiftRecord = {
+      id: randomUUID(),
+      teamId: input.teamId,
+      assigneeId: input.assigneeId,
+      startsAt: input.startsAt,
+      endsAt: input.endsAt,
+      createdBy: input.createdBy,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.shifts.set(shift.id, shift);
+    return shift;
+  }
+
+  async find(teamId: string, shiftId: string): Promise<ShiftRecord | undefined> {
+    const shift = this.shifts.get(shiftId);
+    return shift?.teamId === teamId ? shift : undefined;
+  }
+
+  async list(filter: Parameters<ShiftsRepository["list"]>[0]): Promise<ShiftRecord[]> {
+    return [...this.shifts.values()]
+      .filter(
+        (shift) =>
+          shift.teamId === filter.teamId &&
+          shift.startsAt >= filter.from &&
+          shift.startsAt < filter.to &&
+          (filter.assigneeId === undefined || shift.assigneeId === filter.assigneeId),
+      )
+      .sort(
+        (left, right) =>
+          left.startsAt.getTime() - right.startsAt.getTime() ||
+          left.id.localeCompare(right.id),
+      )
+      .slice(0, 500);
+  }
+
+  async update(
+    _executor: SqlExecutor,
+    teamId: string,
+    shiftId: string,
+    input: ShiftTimes,
+  ): Promise<ShiftUpdateResult | undefined> {
+    const current = await this.find(teamId, shiftId);
+    if (current === undefined) {
+      return undefined;
+    }
+
+    let cancelledSwapId: string | null = null;
+    if (current.assigneeId !== input.assigneeId) {
+      cancelledSwapId = this.pendingSwapIdToCancel;
+      this.pendingSwapIdToCancel = null;
+      const request =
+        cancelledSwapId === null
+          ? undefined
+          : this.swapsRepository?.requests.get(cancelledSwapId);
+      if (cancelledSwapId !== null && request !== undefined) {
+        this.swapsRepository?.requests.set(cancelledSwapId, {
+          ...request,
+          status: "cancelled",
+          decidedAt: new Date(),
+        });
+      }
+    }
+
+    const updated: ShiftRecord = {
+      ...current,
+      assigneeId: input.assigneeId,
+      startsAt: input.startsAt,
+      endsAt: input.endsAt,
+      updatedAt: new Date(),
+    };
+    this.shifts.set(shiftId, updated);
+    return { shift: updated, cancelledSwapId };
+  }
+
+  async remove(
+    _executor: SqlExecutor,
+    teamId: string,
+    shiftId: string,
+  ): Promise<boolean> {
+    const shift = await this.find(teamId, shiftId);
+    if (shift === undefined) {
+      return false;
+    }
+    this.shifts.delete(shiftId);
+    return true;
+  }
+}
+
+export class FakeSwapsRepository implements SwapsRepository {
+  readonly requests = new Map<string, SwapRequestRecord>();
+
+  constructor(private readonly shiftsRepository: FakeShiftsRepository) {}
+
+  async findShiftForSwap(
+    teamId: string,
+    shiftId: string,
+  ): Promise<ShiftForSwap | undefined> {
+    const shift = await this.shiftsRepository.find(teamId, shiftId);
+    if (shift === undefined) {
+      return undefined;
+    }
+    return {
+      id: shift.id,
+      assigneeId: shift.assigneeId,
+      startsAt: shift.startsAt,
+      endsAt: shift.endsAt,
+    };
+  }
+
+  async lockAssignee(): Promise<void> {}
+
+  findOverlap(
+    executor: SqlExecutor,
+    teamId: string,
+    assigneeId: string,
+    startsAt: Date,
+    endsAt: Date,
+  ): Promise<boolean> {
+    return this.shiftsRepository.findOverlap(executor, {
+      teamId,
+      assigneeId,
+      startsAt,
+      endsAt,
+    });
+  }
+
+  async create(
+    _executor: SqlExecutor,
+    input: NewSwapRequest,
+  ): Promise<SwapRequestRecord> {
+    const pending = [...this.requests.values()].some(
+      (request) => request.shiftId === input.shiftId && request.status === "pending",
+    );
+    if (pending) {
+      throw Object.assign(new Error("duplicate pending swap"), {
+        cause: { code: "23505" },
+      });
+    }
+
+    const request: SwapRequestRecord = {
+      id: randomUUID(),
+      teamId: input.teamId,
+      shiftId: input.shiftId,
+      requesterId: input.requesterId,
+      targetId: input.targetId,
+      status: "pending",
+      decidedBy: null,
+      createdAt: new Date(),
+      decidedAt: null,
+    };
+    this.requests.set(request.id, request);
+    return request;
+  }
+
+  async find(
+    teamId: string,
+    requestId: string,
+  ): Promise<SwapRequestRecord | undefined> {
+    const request = this.requests.get(requestId);
+    return request?.teamId === teamId ? request : undefined;
+  }
+
+  async list(filter: SwapListFilter): Promise<SwapRequestRecord[]> {
+    return [...this.requests.values()]
+      .filter(
+        (request) =>
+          request.teamId === filter.teamId &&
+          (filter.status === undefined || request.status === filter.status) &&
+          (filter.isManager ||
+            request.requesterId === filter.viewerId ||
+            request.targetId === filter.viewerId),
+      )
+      .sort(
+        (left, right) =>
+          right.createdAt.getTime() - left.createdAt.getTime() ||
+          right.id.localeCompare(left.id),
+      );
+  }
+
+  async decide(
+    _executor: SqlExecutor,
+    teamId: string,
+    requestId: string,
+    status: Exclude<SwapStatus, "pending">,
+    decidedBy: string,
+    assigneeId?: string,
+  ): Promise<DecideOutcome> {
+    const request = await this.find(teamId, requestId);
+    if (request === undefined) {
+      return { kind: "not_found" };
+    }
+    if (request.status !== "pending") {
+      return { kind: "already_decided" };
+    }
+
+    const shift = await this.shiftsRepository.find(teamId, request.shiftId);
+    if (status === "approved") {
+      if (assigneeId === undefined || shift === undefined) {
+        return { kind: "not_found" };
+      }
+      if (shift.assigneeId !== request.requesterId) {
+        return { kind: "assignee_changed" };
+      }
+      if (
+        await this.findOverlap(
+          fakeExecutor,
+          teamId,
+          assigneeId,
+          shift.startsAt,
+          shift.endsAt,
+        )
+      ) {
+        return { kind: "overlap" };
+      }
+    }
+
+    const updated: SwapRequestRecord = {
+      ...request,
+      status,
+      decidedBy,
+      decidedAt: new Date(),
+    };
+    this.requests.set(updated.id, updated);
+
+    let updatedShift: ShiftRecord | undefined;
+    if (status === "approved" && assigneeId !== undefined && shift !== undefined) {
+      updatedShift = { ...shift, assigneeId, updatedAt: new Date() };
+      this.shiftsRepository.shifts.set(shift.id, updatedShift);
+    }
+
+    return { kind: "decided", request: updated, shift: updatedShift };
+  }
+}
+
+export function createSchedulingHarness(
+  teamsService: TeamsService,
+  now: () => Date = () => new Date(),
+) {
+  const activityRepository = new FakeActivityRepository();
+  const shiftsRepository = new FakeShiftsRepository();
+  const swapsRepository = new FakeSwapsRepository(shiftsRepository);
+  shiftsRepository.swapsRepository = swapsRepository;
+  const activityService = createActivityService(activityRepository);
+
+  return {
+    activityRepository,
+    shiftsRepository,
+    swapsRepository,
+    activityService,
+    shiftsService: createShiftsService({
+      repository: shiftsRepository,
+      activity: activityService,
+      teamsService,
+      transactions: testTransactionRunner,
+      now,
+    }),
+    swapsService: createSwapsService({
+      repository: swapsRepository,
+      activity: activityService,
+      teamsService,
+      transactions: testTransactionRunner,
+      now,
+    }),
+  };
+}
+
+export async function setupScheduling(
+  now: () => Date = () => new Date(),
+) {
+  const authRepository = new FakeAuthRepository();
+  const teamsRepository = new FakeTeamsRepository();
+  const authService = createAuthService({
+    repository: authRepository,
+    passwords: createFakePasswords(),
+    tokens: createTokenIssuer(testTokenConfig),
+    refreshTtlDays: testRefreshTtlDays,
+  });
+  const teamsService = createTeamsService({
+    repository: teamsRepository,
+    authService,
+    inviteTtlDays: 7,
+  });
+  const harness = createSchedulingHarness(teamsService, now);
+
+  const owner = await authRepository.createUser("owner@test.local", "fake:owner");
+  const manager = await authRepository.createUser("manager@test.local", "fake:manager");
+  const staff = await authRepository.createUser("staff@test.local", "fake:staff");
+  const target = await authRepository.createUser("target@test.local", "fake:target");
+  const nonMember = await authRepository.createUser("outside@test.local", "fake:outside");
+
+  const team = await teamsService.createTeam(owner.id, "Team A");
+  await teamsRepository.createMembership(team.id, manager.id, "manager");
+  await teamsRepository.createMembership(team.id, staff.id, "staff");
+  await teamsRepository.createMembership(team.id, target.id, "staff");
+  const otherTeam = await teamsService.createTeam(nonMember.id, "Team B");
+
+  return {
+    ...harness,
+    authRepository,
+    teamsRepository,
+    teamsService,
+    users: { owner, manager, staff, target, nonMember },
+    team,
+    otherTeam,
+  };
+}
 
 export class FakeRedis implements RedisLike {
   private readonly counts = new Map<string, number>();

@@ -177,3 +177,27 @@ export function resetRateLimit(limiter: RateLimiter): RequestHandler {
     key: (req) => `rl:reset:ip:${requestIp(req)}`,
   });
 }
+
+export function activityFeedRateLimit(limiter: RateLimiter): RequestHandler {
+  return rateLimit(limiter, {
+    limit: 60,
+    windowSeconds: 900,
+    key: (req) => `rl:activity:user:${req.user?.id ?? "unknown"}`,
+  });
+}
+
+export function shiftListRateLimit(limiter: RateLimiter): RequestHandler {
+  return rateLimit(limiter, {
+    limit: 120,
+    windowSeconds: 900,
+    key: (req) => `rl:shifts:user:${req.user?.id ?? "unknown"}`,
+  });
+}
+
+export function swapListRateLimit(limiter: RateLimiter): RequestHandler {
+  return rateLimit(limiter, {
+    limit: 120,
+    windowSeconds: 900,
+    key: (req) => `rl:swaps:user:${req.user?.id ?? "unknown"}`,
+  });
+}

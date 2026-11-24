@@ -18,6 +18,9 @@ import {
   testRefreshTtlDays,
   testResetTtlMinutes,
   testTokenConfig,
+  unusedActivityService,
+  unusedShiftsService,
+  unusedSwapsService,
 } from "../test/helpers.js";
 
 const password = "correct horse battery staple";
@@ -49,6 +52,9 @@ function setup() {
     authService,
     limiter: createRedisFixedWindowLimiter(redis),
     teamsService,
+    activityService: unusedActivityService,
+    shiftsService: unusedShiftsService,
+    swapsService: unusedSwapsService,
     resetRepository,
     passwords,
     emailSender,

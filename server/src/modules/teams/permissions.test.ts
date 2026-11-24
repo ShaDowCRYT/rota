@@ -13,7 +13,9 @@ import {
   startServer,
   testRefreshTtlDays,
   testResetTtlMinutes,
+  createSchedulingHarness,
   testTokenConfig,
+  testTransactionRunner,
   unusedEmailSender,
   unusedPasswordResetRepository,
 } from "../../test/helpers.js";
@@ -23,17 +25,23 @@ import { createTeamsService } from "./service.js";
 type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
 type Viewer = "owner" | "manager" | "staff" | "nonMember";
 
+type MemberViewer = Exclude<Viewer, "nonMember">;
+
 interface RouteIds {
   teamId: string;
   targetUserId: string;
   inviteId: string;
+  shiftId: string;
+  shiftIds: Record<MemberViewer, string>;
+  freeShiftIds: Record<MemberViewer, string>;
+  swapRequestIds: Record<MemberViewer, string>;
 }
 
 interface RouteCase {
   label: string;
   method: HttpMethod;
-  path: (ids: RouteIds) => string;
-  body?: unknown;
+  path: (ids: RouteIds, viewer: Viewer) => string;
+  body?: unknown | ((ids: RouteIds, viewer: Viewer) => unknown);
   expected: Record<Viewer, number>;
 }
 
@@ -61,19 +69,23 @@ function setup() {
     authService,
     inviteTtlDays,
   });
+  const scheduling = createSchedulingHarness(teamsService);
   const app = createApp({
     checkDatabase: () => Promise.resolve(),
     checkRedis: () => Promise.resolve(true),
     authService,
     limiter: permissiveLimiter,
     teamsService,
+    activityService: scheduling.activityService,
+    shiftsService: scheduling.shiftsService,
+    swapsService: scheduling.swapsService,
     resetRepository: unusedPasswordResetRepository,
     passwords,
     emailSender: unusedEmailSender,
     resetTtlMinutes: testResetTtlMinutes,
   });
 
-  return { authRepository, teamsRepository, tokens, teamsService, app };
+  return { authRepository, teamsRepository, tokens, teamsService, scheduling, app };
 }
 
 type Context = ReturnType<typeof setup>;
@@ -122,7 +134,62 @@ async function seedTeam(context: Context) {
     "staff",
   );
 
-  return { owner, manager, staff, nonMember, team, invite };
+  const members: Record<MemberViewer, TestUser> = { owner, manager, staff };
+  const shiftIds = {} as Record<MemberViewer, string>;
+  const freeShiftIds = {} as Record<MemberViewer, string>;
+  const swapRequestIds = {} as Record<MemberViewer, string>;
+  const base = Date.parse("2027-01-01T10:00:00Z");
+  const hour = 60 * 60 * 1000;
+
+  for (const [index, memberViewer] of (["owner", "manager", "staff"] as const).entries()) {
+    const member = members[memberViewer];
+    const startsAt = new Date(base + index * 2 * hour);
+    const shift = await testTransactionRunner(team.id, (executor) =>
+      context.scheduling.shiftsRepository.create(executor, {
+        teamId: team.id,
+        assigneeId: member.id,
+        startsAt,
+        endsAt: new Date(startsAt.getTime() + hour),
+        createdBy: owner.id,
+      }),
+    );
+    shiftIds[memberViewer] = shift.id;
+
+    const swapRequest = await testTransactionRunner(team.id, (executor) =>
+      context.scheduling.swapsRepository.create(executor, {
+        teamId: team.id,
+        shiftId: shift.id,
+        requesterId: member.id,
+        targetId: null,
+      }),
+    );
+    swapRequestIds[memberViewer] = swapRequest.id;
+
+    const freeStartsAt = new Date(base + (index + 4) * 2 * hour);
+    const freeShift = await testTransactionRunner(team.id, (executor) =>
+      context.scheduling.shiftsRepository.create(executor, {
+        teamId: team.id,
+        assigneeId: member.id,
+        startsAt: freeStartsAt,
+        endsAt: new Date(freeStartsAt.getTime() + hour),
+        createdBy: owner.id,
+      }),
+    );
+    freeShiftIds[memberViewer] = freeShift.id;
+  }
+
+  return {
+    owner,
+    manager,
+    staff,
+    nonMember,
+    team,
+    invite,
+    shiftId: shiftIds.owner,
+    shiftIds,
+    freeShiftIds,
+    swapRequestIds,
+  };
 }
 
 const routes: RouteCase[] = [
@@ -183,6 +250,85 @@ const routes: RouteCase[] = [
     path: ({ teamId, inviteId }) => `/teams/${teamId}/invites/${inviteId}`,
     expected: { owner: 204, manager: 403, staff: 403, nonMember: 404 },
   },
+  {
+    label: "GET /teams/:teamId/activity",
+    method: "GET",
+    path: ({ teamId }) => `/teams/${teamId}/activity`,
+    expected: { owner: 200, manager: 200, staff: 200, nonMember: 404 },
+  },
+  {
+    label: "GET /teams/:teamId/shifts",
+    method: "GET",
+    path: ({ teamId }) =>
+      `/teams/${teamId}/shifts?from=2027-01-01T00:00:00Z&to=2027-02-15T00:00:00Z`,
+    expected: { owner: 200, manager: 200, staff: 200, nonMember: 404 },
+  },
+  {
+    label: "POST /teams/:teamId/shifts",
+    method: "POST",
+    path: ({ teamId }) => `/teams/${teamId}/shifts`,
+    body: ({ targetUserId }: RouteIds) => ({
+      assigneeId: targetUserId,
+      startsAt: "2027-05-01T10:00:00Z",
+      endsAt: "2027-05-01T11:00:00Z",
+    }),
+    expected: { owner: 201, manager: 201, staff: 403, nonMember: 404 },
+  },
+  {
+    label: "PATCH /teams/:teamId/shifts/:shiftId",
+    method: "PATCH",
+    path: ({ teamId, shiftId }) => `/teams/${teamId}/shifts/${shiftId}`,
+    body: {
+      startsAt: "2027-01-01T12:00:00Z",
+      endsAt: "2027-01-01T13:00:00Z",
+    },
+    expected: { owner: 200, manager: 200, staff: 403, nonMember: 404 },
+  },
+  {
+    label: "DELETE /teams/:teamId/shifts/:shiftId",
+    method: "DELETE",
+    path: ({ teamId, shiftId }) => `/teams/${teamId}/shifts/${shiftId}`,
+    expected: { owner: 204, manager: 204, staff: 403, nonMember: 404 },
+  },
+  {
+    label: "POST /teams/:teamId/shifts/:shiftId/swap-requests",
+    method: "POST",
+    path: (ids, viewer) =>
+      `/teams/${ids.teamId}/shifts/${
+        ids.freeShiftIds[viewer === "nonMember" ? "owner" : viewer]
+      }/swap-requests`,
+    expected: { owner: 201, manager: 201, staff: 201, nonMember: 404 },
+  },
+  {
+    label: "GET /teams/:teamId/swap-requests",
+    method: "GET",
+    path: ({ teamId }) => `/teams/${teamId}/swap-requests`,
+    expected: { owner: 200, manager: 200, staff: 200, nonMember: 404 },
+  },
+  {
+    label: "POST /teams/:teamId/swap-requests/:requestId/approve",
+    method: "POST",
+    path: ({ teamId, swapRequestIds }) =>
+      `/teams/${teamId}/swap-requests/${swapRequestIds.owner}/approve`,
+    body: ({ targetUserId }: RouteIds) => ({ assigneeId: targetUserId }),
+    expected: { owner: 200, manager: 200, staff: 403, nonMember: 404 },
+  },
+  {
+    label: "POST /teams/:teamId/swap-requests/:requestId/reject",
+    method: "POST",
+    path: ({ teamId, swapRequestIds }) =>
+      `/teams/${teamId}/swap-requests/${swapRequestIds.owner}/reject`,
+    expected: { owner: 200, manager: 200, staff: 403, nonMember: 404 },
+  },
+  {
+    label: "POST /teams/:teamId/swap-requests/:requestId/cancel",
+    method: "POST",
+    path: (ids, viewer) =>
+      `/teams/${ids.teamId}/swap-requests/${
+        ids.swapRequestIds[viewer === "nonMember" ? "owner" : viewer]
+      }/cancel`,
+    expected: { owner: 204, manager: 204, staff: 204, nonMember: 404 },
+  },
 ];
 
 const viewers: Viewer[] = ["owner", "manager", "staff", "nonMember"];
@@ -221,16 +367,23 @@ describe("team route permissions", () => {
       nonMember: seeded.nonMember.token,
     };
 
+    const ids: RouteIds = {
+      teamId: seeded.team.id,
+      targetUserId: seeded.staff.id,
+      inviteId: seeded.invite.id,
+      shiftId: seeded.shiftId,
+      shiftIds: seeded.shiftIds,
+      freeShiftIds: seeded.freeShiftIds,
+      swapRequestIds: seeded.swapRequestIds,
+    };
+    const body =
+      typeof route.body === "function" ? route.body(ids, viewer) : route.body;
     const response = await request(
       started.baseUrl,
       route.method,
-      route.path({
-        teamId: seeded.team.id,
-        targetUserId: seeded.staff.id,
-        inviteId: seeded.invite.id,
-      }),
+      route.path(ids, viewer),
       tokens[viewer],
-      route.body,
+      body,
     );
 
     expect(response.status).toBe(expected);
@@ -292,6 +445,55 @@ describe("team route permissions", () => {
       {
         method: "DELETE",
         path: (id) => `/teams/${id}/invites/${seeded.invite.id}`,
+      },
+      { method: "GET", path: (id) => `/teams/${id}/activity` },
+      {
+        method: "GET",
+        path: (id) =>
+          `/teams/${id}/shifts?from=2027-01-01T00:00:00Z&to=2027-02-15T00:00:00Z`,
+      },
+      {
+        method: "POST",
+        path: (id) => `/teams/${id}/shifts`,
+        body: {
+          assigneeId: seeded.staff.id,
+          startsAt: "2027-05-01T10:00:00Z",
+          endsAt: "2027-05-01T11:00:00Z",
+        },
+      },
+      {
+        method: "PATCH",
+        path: (id) => `/teams/${id}/shifts/${seeded.shiftId}`,
+        body: {
+          startsAt: "2027-01-01T12:00:00Z",
+          endsAt: "2027-01-01T13:00:00Z",
+        },
+      },
+      {
+        method: "DELETE",
+        path: (id) => `/teams/${id}/shifts/${seeded.shiftId}`,
+      },
+      {
+        method: "POST",
+        path: (id) =>
+          `/teams/${id}/shifts/${seeded.freeShiftIds.owner}/swap-requests`,
+      },
+      { method: "GET", path: (id) => `/teams/${id}/swap-requests` },
+      {
+        method: "POST",
+        path: (id) =>
+          `/teams/${id}/swap-requests/${seeded.swapRequestIds.owner}/approve`,
+        body: { assigneeId: seeded.staff.id },
+      },
+      {
+        method: "POST",
+        path: (id) =>
+          `/teams/${id}/swap-requests/${seeded.swapRequestIds.owner}/reject`,
+      },
+      {
+        method: "POST",
+        path: (id) =>
+          `/teams/${id}/swap-requests/${seeded.swapRequestIds.owner}/cancel`,
       },
     ];
 
