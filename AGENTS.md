@@ -7,9 +7,9 @@ Every rule here is an order, not a suggestion.
 
 Rota is a shift scheduling app for small teams (restaurants, clinics, retail). An Owner creates a team and invites staff. Managers publish shifts and approve swaps. Staff view shifts and request swaps. The team pays a monthly subscription priced per seat.
 
-- Building: Mobile Task A, PRD Draft v1.0. The PRD is the source of truth. It lives at `docs/PRD.md`.
+- Building: Mobile Task A, PRD Draft v1.0. The PRD is the source of truth. It lives at `docs/Rota-PRD.md`.
 - If the PRD and this file disagree about what to build, stop and ask.
-- Current phase: **1 Authentication and teams** (the developer updates this line). Phases are in PRD section 11. Build ONLY the current phase. Never start work from a later phase.
+- Current phase: **2 and 3 app work** (shifts, activity feed, swaps screens; server side is done). The developer updates this line.
 - Platform: Android development build only.
 - The developer is a beginner. Before each step, explain it in simple English. Explain any new term in one line. Do one task at a time and wait for "ok" before the next.
 
@@ -88,7 +88,7 @@ Breaking ANY rule below means the task FAILED, even if the code runs and the tes
 rota/
   AGENTS.md
   .env.example            names only, no values
-  docs/                   PRD.md, ARCHITECTURE.md, STATE.md, SECURITY.md,
+  docs/                   Rota-PRD.md, ARCHITECTURE.md, STATE.md, SECURITY.md,
                           SHARDING.md, LEARNING-LOG.md, decisions/
   load-tests/             k6 scripts and the written report
   app/src/                screens, components, features/<name>, api, store, lib
