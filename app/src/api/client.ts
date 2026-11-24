@@ -1,3 +1,6 @@
+import Constants from 'expo-constants';
+
+import { ApiUrlError, resolveApiUrl } from './apiUrl';
 import type { FetchResponse } from './types';
 
 export type HealthStatus = 'ok' | 'error';
@@ -25,11 +28,21 @@ export class ApiError extends Error {
 export const REQUEST_TIMEOUT_MS = 10000;
 
 export function getApiUrl(): string {
-  const url = process.env.EXPO_PUBLIC_API_URL;
-  if (!url) {
-    throw new ApiError('unknown', 'Missing API URL.');
+  const configuredUrl = process.env.EXPO_PUBLIC_API_URL;
+  const isDev = typeof __DEV__ !== 'undefined' && __DEV__;
+  const hostUri = Constants.expoConfig?.hostUri ?? undefined;
+
+  try {
+    return resolveApiUrl({ configuredUrl, isDev, hostUri });
+  } catch (error) {
+    if (!(error instanceof ApiUrlError)) {
+      throw error;
+    }
+    if (isDev) {
+      console.warn('No API URL configured. Set EXPO_PUBLIC_API_URL or connect to Metro.');
+    }
+    throw new ApiError('unreachable', error.message);
   }
-  return url.replace(/\/$/, '');
 }
 
 export async function apiFetch(path: string, init: RequestInit = {}): Promise<FetchResponse> {
@@ -49,6 +62,9 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Fe
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
       throw new ApiError('timeout', 'Request timed out.');
+    }
+    if (error instanceof ApiError) {
+      throw error;
     }
     throw new ApiError('unreachable', 'Server unreachable.');
   } finally {

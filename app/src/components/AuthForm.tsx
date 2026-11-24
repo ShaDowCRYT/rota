@@ -1,8 +1,18 @@
 import React, { useState } from 'react';
 import { KeyboardAvoidingView, View } from 'react-native';
 import { Link } from 'expo-router';
+
 import type { FriendlyErrorKind } from '../features/auth/errors';
 import { mapError } from '../features/auth/errors';
+import { getGoogleWebClientId } from '../features/auth/googleConfig';
+import { googleAuth } from '../features/auth/googleAuth';
+import { GoogleCancelledError } from '../features/auth/googleSignIn';
+import {
+  isValidEmail,
+  isValidPassword,
+  MAX_PASSWORD_LENGTH,
+  normalizeEmail,
+} from '../features/auth/validation';
 
 import { Button } from './Button';
 import { Card } from './Card';
@@ -16,6 +26,7 @@ type Props = {
   switchPrompt: string;
   switchLabel: string;
   switchHref: '/login' | '/signup';
+  onAuthenticated?: () => void;
 };
 
 type FieldErrors = {
@@ -28,27 +39,28 @@ type FormError = {
   message: string;
 };
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MIN_PASSWORD_LENGTH = 10;
-const MAX_PASSWORD_LENGTH = 128;
-
 function validate(email: string, password: string): FieldErrors {
   const errors: FieldErrors = {};
 
-  if (!EMAIL_PATTERN.test(email.trim())) {
+  if (!isValidEmail(email)) {
     errors.email = 'Enter a valid email address.';
   }
 
-  if (password.length < MIN_PASSWORD_LENGTH) {
-    errors.password = 'Password must be at least 10 characters.';
-  } else if (password.length > MAX_PASSWORD_LENGTH) {
-    errors.password = 'Password must be 128 characters or fewer.';
+  if (!isValidPassword(password)) {
+    errors.password = 'Password must be between 10 and 128 characters.';
   }
 
   return errors;
 }
 
-export function AuthForm({ mode, onSubmit, switchPrompt, switchLabel, switchHref }: Props) {
+export function AuthForm({
+  mode,
+  onSubmit,
+  switchPrompt,
+  switchLabel,
+  switchHref,
+  onAuthenticated,
+}: Props) {
   const theme = useTheme();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -57,6 +69,7 @@ export function AuthForm({ mode, onSubmit, switchPrompt, switchLabel, switchHref
   const [busy, setBusy] = useState(false);
 
   const isSignup = mode === 'signup';
+  const showGoogle = getGoogleWebClientId() !== null;
   const title = isSignup ? 'Create your account' : 'Welcome back';
   const actionLabel = isSignup ? 'Sign up' : 'Log in';
   const actionAccessibilityLabel = isSignup ? 'Create account' : 'Log in';
@@ -72,9 +85,25 @@ export function AuthForm({ mode, onSubmit, switchPrompt, switchLabel, switchHref
 
     setBusy(true);
     try {
-      await onSubmit(email.trim().toLowerCase(), password);
+      await onSubmit(normalizeEmail(email), password);
+      onAuthenticated?.();
     } catch (error) {
       setFormError(mapError(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleGoogle() {
+    setFormError(undefined);
+    setBusy(true);
+    try {
+      await googleAuth.signIn();
+      onAuthenticated?.();
+    } catch (error) {
+      if (!(error instanceof GoogleCancelledError)) {
+        setFormError(mapError(error, 'google'));
+      }
     } finally {
       setBusy(false);
     }
@@ -140,8 +169,20 @@ export function AuthForm({ mode, onSubmit, switchPrompt, switchLabel, switchHref
               label={actionLabel}
               onPress={() => void handleSubmit()}
               loading={busy}
+              disabled={busy}
               accessibilityLabel={actionAccessibilityLabel}
             />
+
+            {showGoogle ? (
+              <Button
+                label="Continue with Google"
+                variant="secondary"
+                onPress={() => void handleGoogle()}
+                loading={busy}
+                disabled={busy}
+                accessibilityLabel="Continue with Google"
+              />
+            ) : null}
 
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.xs }}>
               <Text color={theme.colors.textMuted}>{switchPrompt}</Text>
@@ -149,11 +190,30 @@ export function AuthForm({ mode, onSubmit, switchPrompt, switchLabel, switchHref
                 href={switchHref}
                 accessibilityRole="link"
                 accessibilityLabel={switchLabel}
-                style={{ color: theme.colors.primary, fontSize: theme.typeScale.label.fontSize, lineHeight: theme.typeScale.label.lineHeight }}
+                style={{
+                  color: theme.colors.primary,
+                  fontSize: theme.typeScale.label.fontSize,
+                  lineHeight: theme.typeScale.label.lineHeight,
+                }}
               >
                 {switchLabel}
               </Link>
             </View>
+
+            {!isSignup ? (
+              <Link
+                href="/forgot"
+                accessibilityRole="link"
+                accessibilityLabel="Forgot password"
+                style={{
+                  color: theme.colors.primary,
+                  fontSize: theme.typeScale.label.fontSize,
+                  lineHeight: theme.typeScale.label.lineHeight,
+                }}
+              >
+                Forgot password?
+              </Link>
+            ) : null}
           </View>
         </Card>
       </View>

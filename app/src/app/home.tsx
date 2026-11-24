@@ -1,113 +1,95 @@
-import React, { useState } from 'react';
-import { View } from 'react-native';
+import React from 'react';
+import { Pressable, View } from 'react-native';
+import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'expo-router';
 
 import { Button } from '../components/Button';
+import { Card } from '../components/Card';
+import { RoleBadge } from '../features/teams/RoleBadge';
+import { Screen } from '../components/Screen';
+import { StateView } from '../components/StateView';
 import { Text } from '../components/Text';
-import { authActions } from '../features/auth/authActions';
+import { mapError } from '../features/auth/errors';
 import { useSessionStore } from '../features/auth/session';
-import { StatusScreen } from '../screens/StatusScreen';
+import { listTeams } from '../features/teams/teamsApi';
 import { useTheme } from '../theme/useTheme';
-
-type BusyAction = 'none' | 'logout' | 'logoutAll';
 
 export default function HomeScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const user = useSessionStore((state) => state.user);
-  const [busy, setBusy] = useState<BusyAction>('none');
-  const [confirmAll, setConfirmAll] = useState(false);
+  const { data, error, isPending, isRefetching, refetch } = useQuery({
+    queryKey: ['teams'],
+    queryFn: () => listTeams(),
+  });
 
-  async function handleLogout() {
-    setBusy('logout');
-    try {
-      await authActions.logout();
-    } finally {
-      setBusy('none');
-    }
-  }
-
-  async function handleLogoutAll() {
-    setBusy('logoutAll');
-    try {
-      await authActions.logoutAll();
-    } finally {
-      setBusy('none');
-      setConfirmAll(false);
-    }
-  }
+  const teams = data ?? [];
+  const errorMessage = error ? mapError(error, 'team').message : undefined;
 
   return (
-    <View style={{ flex: theme.layout.fill, backgroundColor: theme.colors.background }}>
-      <View
-        style={{
-          gap: theme.spacing.md,
-          paddingHorizontal: theme.spacing.lg,
-          paddingTop: theme.spacing.lg,
-          paddingBottom: theme.spacing.md,
-          borderBottomWidth: theme.sizes.borderWidth,
-          borderBottomColor: theme.colors.border,
-        }}
-      >
-        <View style={{ gap: theme.spacing.xs }}>
-          <Text variant="heading">Signed in</Text>
-          <Text variant="body" color={theme.colors.textMuted} accessibilityLabel={`Signed in as ${user?.email ?? 'unknown user'}`}>
-            {user?.email ?? 'Signed in'}
-          </Text>
-        </View>
-
-        <Button
-          label="Log out"
-          variant="secondary"
-          onPress={() => void handleLogout()}
-          loading={busy === 'logout'}
-          disabled={busy !== 'none'}
-          accessibilityLabel="Log out"
-        />
-
-        {confirmAll ? (
-          <View
-            style={{
-              gap: theme.spacing.sm,
-              padding: theme.spacing.md,
-              backgroundColor: theme.colors.surface,
-              borderRadius: theme.radii.sm,
-              borderWidth: theme.sizes.borderWidth,
-              borderColor: theme.colors.warning,
-            }}
-          >
-            <Text color={theme.colors.warning}>
-              Log out on every device? You will need to log in again everywhere.
-            </Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.spacing.sm }}>
-              <Button
-                label="Yes, log out everywhere"
-                onPress={() => void handleLogoutAll()}
-                loading={busy === 'logoutAll'}
-                disabled={busy !== 'none'}
-                accessibilityLabel="Confirm log out of all devices"
-              />
-              <Button
-                label="Cancel"
-                variant="secondary"
-                onPress={() => setConfirmAll(false)}
-                disabled={busy !== 'none'}
-                accessibilityLabel="Cancel log out of all devices"
-              />
-            </View>
-          </View>
-        ) : (
-          <Button
-            label="Log out of all devices"
-            variant="secondary"
-            onPress={() => setConfirmAll(true)}
-            disabled={busy !== 'none'}
-            accessibilityLabel="Log out of all devices"
-          />
-        )}
+    <Screen refreshing={isRefetching && !isPending} onRefresh={() => void refetch()}>
+      <View style={{ gap: theme.spacing.xs }}>
+        <Text variant="title">Your teams</Text>
+        <Text
+          variant="body"
+          color={theme.colors.textMuted}
+          accessibilityLabel={`Signed in as ${user?.email ?? 'unknown user'}`}
+        >
+          {user?.email ?? 'Signed in'}
+        </Text>
       </View>
 
-      <View style={{ flex: theme.layout.fill }}>
-        <StatusScreen />
-      </View>
-    </View>
+      <Button
+        label="Create team"
+        onPress={() => router.push('/create-team')}
+        accessibilityLabel="Create team"
+      />
+
+      {isPending ? <StateView loading /> : null}
+
+      {!isPending && errorMessage ? (
+        <StateView errorMessage={errorMessage} onRetry={() => void refetch()} />
+      ) : null}
+
+      {!isPending && !errorMessage && teams.length === 0 ? (
+        <StateView emptyMessage="You are not in a team yet. Create one or open an invite link." />
+      ) : null}
+
+      {!isPending && !errorMessage
+        ? teams.map((team) => (
+            <Pressable
+              key={team.id}
+              onPress={() =>
+                router.push({ pathname: '/team/[teamId]', params: { teamId: team.id } })
+              }
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${team.name}`}
+            >
+              <Card>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: theme.spacing.sm,
+                  }}
+                >
+                  <Text variant="heading" style={{ flex: theme.layout.fill }}>
+                    {team.name}
+                  </Text>
+                  <RoleBadge role={team.role} />
+                </View>
+              </Card>
+            </Pressable>
+          ))
+        : null}
+
+      <Button
+        label="Account and server status"
+        variant="secondary"
+        onPress={() => router.push('/account')}
+        accessibilityLabel="Open account and server status"
+      />
+    </Screen>
   );
 }

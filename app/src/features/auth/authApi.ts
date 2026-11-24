@@ -1,5 +1,6 @@
 import { apiFetch } from '../../api/client';
-import type { FetchLike, FetchResponse } from '../../api/types';
+import { ensureOk, isRecord, parseJson } from '../../api/responses';
+import type { FetchLike } from '../../api/types';
 
 import { ApiFailure } from './errors';
 import type { SessionUser } from './session';
@@ -41,6 +42,44 @@ export async function login(
   });
   await ensureOk(response);
   return parseAuthResult(await parseJson(response));
+}
+
+export async function googleSignIn(
+  idToken: string,
+  fetcher: FetchLike = apiFetch,
+): Promise<AuthResult> {
+  const response = await fetcher('/auth/google', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idToken }),
+  });
+  await ensureOk(response);
+  return parseAuthResult(await parseJson(response));
+}
+
+export async function forgotPassword(
+  email: string,
+  fetcher: FetchLike = apiFetch,
+): Promise<void> {
+  const response = await fetcher('/auth/forgot', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  await ensureOk(response);
+}
+
+export async function resetPassword(
+  token: string,
+  newPassword: string,
+  fetcher: FetchLike = apiFetch,
+): Promise<void> {
+  const response = await fetcher('/auth/reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, newPassword }),
+  });
+  await ensureOk(response);
 }
 
 export async function refresh(
@@ -85,29 +124,8 @@ export async function getMe(fetcher: FetchLike): Promise<SessionUser> {
   return parseUser(await parseJson(response));
 }
 
-async function ensureOk(response: FetchResponse): Promise<void> {
-  if (!response.ok) {
-    throw new ApiFailure(response.status, parseRetryAfter(response));
-  }
-}
-
-function parseRetryAfter(response: FetchResponse): number | undefined {
-  const value = response.headers.get('Retry-After');
-  if (!value) return undefined;
-  const seconds = Number(value);
-  return Number.isFinite(seconds) ? seconds : undefined;
-}
-
-async function parseJson(response: FetchResponse): Promise<unknown> {
-  try {
-    return await response.json();
-  } catch {
-    throw new ApiFailure(response.status);
-  }
-}
-
 function parseAuthResult(value: unknown): AuthResult {
-  if (!value || typeof value !== 'object') throw new ApiFailure(200);
+  if (!isRecord(value)) throw new ApiFailure(200);
   const record = value as Record<string, unknown>;
   return {
     user: parseUser(record.user),
@@ -116,8 +134,8 @@ function parseAuthResult(value: unknown): AuthResult {
 }
 
 function parseRefreshResult(value: unknown): RefreshResult {
-  if (!value || typeof value !== 'object') throw new ApiFailure(200);
-  return parseTokens(value as Record<string, unknown>);
+  if (!isRecord(value)) throw new ApiFailure(200);
+  return parseTokens(value);
 }
 
 function parseTokens(value: Record<string, unknown>): AuthTokens {
@@ -129,8 +147,7 @@ function parseTokens(value: Record<string, unknown>): AuthTokens {
 }
 
 function parseUser(value: unknown): SessionUser {
-  if (!value || typeof value !== 'object') throw new ApiFailure(200);
-  const record = value as Record<string, unknown>;
-  if (typeof record.id !== 'string' || typeof record.email !== 'string') throw new ApiFailure(200);
-  return { id: record.id, email: record.email };
+  if (!isRecord(value)) throw new ApiFailure(200);
+  if (typeof value.id !== 'string' || typeof value.email !== 'string') throw new ApiFailure(200);
+  return { id: value.id, email: value.email };
 }

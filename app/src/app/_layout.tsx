@@ -5,6 +5,8 @@ import { Stack } from 'expo-router';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import { bootstrapSession } from '../features/auth/authActions';
+import { configureGoogle } from '../features/auth/googleClient';
+import { getGoogleWebClientId } from '../features/auth/googleConfig';
 import { useSessionStore } from '../features/auth/session';
 import { useTheme } from '../theme/useTheme';
 
@@ -26,12 +28,19 @@ function RootNavigator() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
+      <Stack.Screen name="forgot" />
+      <Stack.Screen name="invite" />
+      <Stack.Screen name="reset" />
       <Stack.Protected guard={status === 'signedOut'}>
         <Stack.Screen name="login" />
         <Stack.Screen name="signup" />
+        <Stack.Screen name="accept-invite" />
       </Stack.Protected>
       <Stack.Protected guard={status === 'signedIn'}>
         <Stack.Screen name="home" />
+        <Stack.Screen name="account" />
+        <Stack.Screen name="create-team" />
+        <Stack.Screen name="team" />
       </Stack.Protected>
     </Stack>
   );
@@ -42,6 +51,10 @@ export default function RootLayout() {
 
   useEffect(() => {
     void bootstrapSession();
+    const webClientId = getGoogleWebClientId();
+    if (webClientId) {
+      configureGoogle(webClientId);
+    }
   }, []);
 
   return (

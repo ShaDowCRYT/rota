@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { ApiError } from '../../api/client';
-import { ApiFailure, mapError, SessionEndedError } from './errors';
+import { ApiFailure, GoogleSignInFailure, mapError, SessionEndedError } from './errors';
 
 describe('mapError', () => {
   it('maps network failures', () => {
@@ -66,5 +66,45 @@ describe('mapError', () => {
     const result = mapError(new SessionEndedError());
     expect(result.kind).toBe('unknown');
     expect(result.message).toBe('Your session has ended. Please log in again.');
+  });
+
+  it('maps 403 and 404 to friendly messages without raw text', () => {
+    const forbidden = mapError(new ApiFailure(403));
+    expect(forbidden.kind).toBe('forbidden');
+    expect(forbidden.message).toBe("You don't have permission to do that");
+    expect(forbidden.message).not.toContain('403');
+
+    const missing = mapError(new ApiFailure(404));
+    expect(missing.kind).toBe('not-found');
+    expect(missing.message).toBe('Not found');
+  });
+
+  it('maps invite and reset failures to expired-link messages', () => {
+    expect(mapError(new ApiFailure(400), 'invite').message).toBe('This link is invalid or has expired.');
+    expect(mapError(new ApiFailure(403), 'invite').message).toBe('This link is invalid or has expired.');
+    expect(mapError(new ApiFailure(400), 'reset').message).toBe('This link is invalid or has expired.');
+  });
+
+  it('maps invite conflict to a team message', () => {
+    const result = mapError(new ApiFailure(409), 'invite');
+    expect(result.kind).toBe('conflict');
+    expect(result.message).toBe('You are already in this team.');
+  });
+
+  it('maps Google server and library failures without raw text', () => {
+    const invalid = mapError(new ApiFailure(401), 'google');
+    expect(invalid.kind).toBe('google');
+    expect(invalid.message).toBe('Google sign-in failed. Try again.');
+
+    const unavailable = mapError(new ApiFailure(503), 'google');
+    expect(unavailable.kind).toBe('service-unavailable');
+    expect(unavailable.message).toBe('Google sign-in is not available. Try again.');
+
+    const raw = 'RAW-NATIVE-GOOGLE-MESSAGE-MUST-NOT-SHOW';
+    const library = mapError(new GoogleSignInFailure('DEVELOPER_ERROR'));
+    expect(library.kind).toBe('google');
+    expect(library.message).toContain('not set up correctly');
+    expect(library.message).not.toContain(raw);
+    expect(library.message).not.toContain('DEVELOPER_ERROR');
   });
 });
