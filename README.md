@@ -162,6 +162,32 @@ Use the Android development build (`npx expo start --dev-client -c`) with the lo
 
 To be written before release
 
+## Deploying to Render
+
+Smoke test after deploy (no secrets, GET-only):
+
+```bash
+node scripts/smoke.mjs https://YOUR-SERVICE.onrender.com
+```
+
+### Render dashboard steps (manual)
+
+1. In Render, create a **Blueprint** and connect the `ShaDowCRYT/rota` repo; Render reads `render.yaml` from the repo root.
+2. Confirm service: `rota-api`, Node, Frankfurt, Free, `rootDir server`, build `npm ci --include=dev && npm run build`, start `npm start`, health `/health`.
+3. Fill secret env vars marked `sync: false`: `DATABASE_URL`, `REDIS_URL`, `JWT_ACCESS_SECRET`, `GOOGLE_WEB_CLIENT_ID` (optional), `SENTRY_DSN` (optional). Keep `NODE_ENV=production` and `TRUST_PROXY_HOPS=1` as in the blueprint.
+4. Deploy. After first deploy, run `node scripts/smoke.mjs https://<your-service>.onrender.com`.
+5. Safe post-deploy IP check: verify rate-limit/429 behavior from your real client and confirm logs show the expected client IP; do not add a debug IP endpoint. `TRUST_PROXY_HOPS=1` is correct for Render's public proxy path (Render sets/forwards `X-Forwarded-For`; see Render DDoS article). If you observe proxy-internal IPs in logs, stop and recheck hop count before increasing.
+
+### Free-plan and shared-dev notes
+
+- Free web service sleeps after ~15 min idle; first request may cold-start 30-60s. `0.1 CPU` makes login/signup CPU work slower.
+- Background workers run in the same web process until the next billing/jobs slice moves them out.
+- Dev and prod currently share the same Neon database (acceptable for this learning phase); be careful with test data/migrations.
+
+### Password reset links
+
+On a development server, reset links are written to the server log by the development email sender. They are not emailed in dev.
+
 ## Architecture
 
 See the recorded decisions in [`docs/decisions/`](docs/decisions/).

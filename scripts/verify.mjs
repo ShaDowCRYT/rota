@@ -15,6 +15,7 @@ const settingsKeys = [
   "REDIS_URL",
   "JWT_ACCESS_SECRET",
   "SENTRY_DSN",
+  "TRUST_PROXY_HOPS",
 ];
 
 const sensitiveKeyPattern =
