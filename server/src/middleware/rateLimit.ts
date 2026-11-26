@@ -147,6 +147,14 @@ export function inviteAcceptRateLimit(limiter: RateLimiter): RequestHandler {
   });
 }
 
+export function createTeamRateLimit(limiter: RateLimiter): RequestHandler {
+  return rateLimit(limiter, {
+    limit: 10,
+    windowSeconds: 3600,
+    key: (req) => `rl:team:create:user:${req.user?.id ?? "unknown"}`,
+  });
+}
+
 export function forgotIpRateLimit(limiter: RateLimiter): RequestHandler {
   return rateLimit(limiter, {
     limit: 5,

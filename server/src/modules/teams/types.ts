@@ -76,6 +76,7 @@ export class DuplicateTokenError extends Error {
 export interface TeamsRepository {
   createTeamWithOwner(userId: string, name: string): Promise<TeamRecord>;
   listTeamsForUser(userId: string): Promise<TeamSummary[]>;
+  countOwnedTeams(userId: string): Promise<number>;
   findTeam(teamId: string): Promise<TeamRecord | undefined>;
   findMembership(
     teamId: string,

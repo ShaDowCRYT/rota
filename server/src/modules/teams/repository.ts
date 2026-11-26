@@ -125,6 +125,34 @@ export function createTeamsRepository(db: Database): TeamsRepository {
       );
     },
 
+    async countOwnedTeams(userId) {
+      const rows = await db
+        .select({ teamId: userTeams.teamId })
+        .from(userTeams)
+        .where(eq(userTeams.userId, userId));
+
+      const owned = await Promise.all(
+        rows.map(async ({ teamId }) => {
+          const shard = getShardFor(teamId);
+          const matches = await shard
+            .select({ role: memberships.role })
+            .from(memberships)
+            .where(
+              and(
+                eq(memberships.teamId, teamId),
+                eq(memberships.userId, userId),
+                eq(memberships.role, "owner"),
+              ),
+            )
+            .limit(1);
+
+          return matches.length > 0;
+        }),
+      );
+
+      return owned.filter(Boolean).length;
+    },
+
     async findTeam(teamId) {
       const shard = getShardFor(teamId);
       const rows = await shard

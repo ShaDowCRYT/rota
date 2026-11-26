@@ -927,6 +927,12 @@ export class FakeTeamsRepository implements TeamsRepository {
     });
   }
 
+  async countOwnedTeams(userId: string): Promise<number> {
+    return [...this.memberships.values()].filter(
+      (membership) => membership.userId === userId && membership.role === "owner",
+    ).length;
+  }
+
   async findTeam(teamId: string): Promise<TeamRecord | undefined> {
     return this.teams.get(teamId);
   }

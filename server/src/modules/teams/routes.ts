@@ -3,6 +3,7 @@ import { Router } from "express";
 import { HttpError } from "../../lib/errors.js";
 import { requireAuth } from "../../middleware/auth.js";
 import {
+  createTeamRateLimit,
   inviteAcceptRateLimit,
   inviteCreateRateLimit,
   type RateLimiter,
@@ -39,7 +40,11 @@ export function createTeamsRouter(
     }
   });
 
-  router.post("/teams", requireAuth(authService), async (req, res, next) => {
+  router.post(
+    "/teams",
+    requireAuth(authService),
+    createTeamRateLimit(limiter),
+    async (req, res, next) => {
     if (req.user === undefined) {
       next(new HttpError(401, "Unauthorized"));
       return;
@@ -56,7 +61,8 @@ export function createTeamsRouter(
     } catch (error) {
       next(error);
     }
-  });
+    },
+  );
 
   router.get(
     "/teams/:teamId",

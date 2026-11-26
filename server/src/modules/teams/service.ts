@@ -18,6 +18,7 @@ import {
 } from "./types.js";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+export const MAX_OWNED_TEAMS = 5;
 
 function invalidInviteError(): HttpError {
   return new HttpError(400, "Invalid or expired invite");
@@ -47,6 +48,11 @@ export interface TeamsServiceDeps {
 export function createTeamsService(deps: TeamsServiceDeps): TeamsService {
   return {
     async createTeam(userId, name) {
+      const ownedTeamCount = await deps.repository.countOwnedTeams(userId);
+      if (ownedTeamCount >= MAX_OWNED_TEAMS) {
+        throw new HttpError(409, `You have reached the limit of ${MAX_OWNED_TEAMS} teams`);
+      }
+
       const team = await deps.repository.createTeamWithOwner(userId, name);
       return { ...team, role: "owner" };
     },
