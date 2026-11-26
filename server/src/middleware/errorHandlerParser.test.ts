@@ -1,4 +1,4 @@
-import type { Server } from "node:http";
+﻿import type { Server } from "node:http";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -15,6 +15,7 @@ import {
   unusedShiftsService,
   unusedSwapsService,
   unusedTeamsService,
+  unusedBillingService,
 } from "../test/helpers.js";
 
 function makeApp() {
@@ -24,6 +25,7 @@ function makeApp() {
     authService: unusedAuthService,
     limiter: permissiveLimiter,
     teamsService: unusedTeamsService,
+    billingService: unusedBillingService,
     activityService: unusedActivityService,
     shiftsService: unusedShiftsService,
     swapsService: unusedSwapsService,
@@ -31,6 +33,7 @@ function makeApp() {
     passwords: createFakePasswords(),
     emailSender: unusedEmailSender,
     resetTtlMinutes: testResetTtlMinutes,
+    trustProxyHops: 0,
   });
 }
 
@@ -61,3 +64,4 @@ describe("malformed JSON", () => {
     expect(body).toEqual({ error: "Invalid request" });
   });
 });
+

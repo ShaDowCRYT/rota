@@ -1,4 +1,4 @@
-import type { Server } from "node:http";
+﻿import type { Server } from "node:http";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -20,6 +20,7 @@ import {
   unusedShiftsService,
   unusedSwapsService,
   unusedTeamsService,
+  unusedBillingService,
 } from "../../test/helpers.js";
 import { createResetService } from "./resetService.js";
 import { createAuthService } from "./service.js";
@@ -64,6 +65,7 @@ function setup() {
     authService,
     limiter: createRedisFixedWindowLimiter(redis),
     teamsService: unusedTeamsService,
+    billingService: unusedBillingService,
     activityService: unusedActivityService,
     shiftsService: unusedShiftsService,
     swapsService: unusedSwapsService,
@@ -71,6 +73,7 @@ function setup() {
     passwords,
     emailSender,
     resetTtlMinutes: testResetTtlMinutes,
+    trustProxyHops: 0,
   });
 
   return { repository, passwords, authService, resetService, resetRepository, emailSender, app };
@@ -411,3 +414,5 @@ describe("password reset (AUTH-7)", () => {
     });
   });
 });
+
+

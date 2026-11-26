@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+﻿import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -18,6 +18,7 @@ import {
   testTransactionRunner,
   unusedEmailSender,
   unusedPasswordResetRepository,
+  unusedBillingService,
 } from "../../test/helpers.js";
 import { createAuthService } from "../auth/service.js";
 import { createTeamsService } from "./service.js";
@@ -76,6 +77,7 @@ function setup() {
     authService,
     limiter: permissiveLimiter,
     teamsService,
+    billingService: unusedBillingService,
     activityService: scheduling.activityService,
     shiftsService: scheduling.shiftsService,
     swapsService: scheduling.swapsService,
@@ -83,9 +85,11 @@ function setup() {
     passwords,
     emailSender: unusedEmailSender,
     resetTtlMinutes: testResetTtlMinutes,
+    trustProxyHops: 0,
   });
 
-  return { authRepository, teamsRepository, tokens, teamsService, scheduling, app };
+  return { authRepository, teamsRepository, tokens, teamsService,
+    billingService: unusedBillingService, scheduling, app };
 }
 
 type Context = ReturnType<typeof setup>;
@@ -604,3 +608,5 @@ describe("team route permissions", () => {
     expect(forbidden.status).toBe(404);
   });
 });
+
+

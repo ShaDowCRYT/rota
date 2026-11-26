@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+﻿import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 
 import {
@@ -29,6 +29,7 @@ import {
   unusedShiftsService,
   unusedSwapsService,
   unusedTeamsService,
+  unusedBillingService,
 } from "../../test/helpers.js";
 import {
   generateRefreshToken,
@@ -98,6 +99,7 @@ function setup(
     authService,
     limiter: createRedisFixedWindowLimiter(redis),
     teamsService: unusedTeamsService,
+    billingService: unusedBillingService,
     activityService: unusedActivityService,
     shiftsService: unusedShiftsService,
     swapsService: unusedSwapsService,
@@ -105,6 +107,7 @@ function setup(
     passwords,
     emailSender: unusedEmailSender,
     resetTtlMinutes: testResetTtlMinutes,
+    trustProxyHops: 0,
     googleAudience: google?.audience,
     googleJwks: google?.jwks,
   });
@@ -1068,3 +1071,5 @@ describe("auth endpoints", () => {
     expect(await response.json()).toEqual({ error: "Invalid request" });
   });
 });
+
+

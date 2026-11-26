@@ -19,6 +19,7 @@ import {
   unusedPasswordResetRepository,
   unusedShiftsService,
   unusedSwapsService,
+  unusedBillingService,
 } from "../../test/helpers.js";
 import { createRedisFixedWindowLimiter } from "../../middleware/rateLimit.js";
 import { createAuthService } from "../auth/service.js";
@@ -47,6 +48,7 @@ function setup(limiter = permissiveLimiter) {
     authService,
     limiter,
     teamsService,
+    billingService: unusedBillingService,
     activityService: unusedActivityService,
     shiftsService: unusedShiftsService,
     swapsService: unusedSwapsService,
@@ -54,6 +56,7 @@ function setup(limiter = permissiveLimiter) {
     passwords,
     emailSender: unusedEmailSender,
     resetTtlMinutes: testResetTtlMinutes,
+    trustProxyHops: 0,
   });
 
   return { authRepository, teamsRepository, tokens, app };
@@ -190,3 +193,5 @@ describe("POST /teams limits", () => {
     expect(response.status).toBe(503);
   });
 });
+
+

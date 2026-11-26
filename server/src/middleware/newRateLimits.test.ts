@@ -1,4 +1,4 @@
-import type { Server } from "node:http";
+﻿import type { Server } from "node:http";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -21,6 +21,7 @@ import {
   unusedActivityService,
   unusedShiftsService,
   unusedSwapsService,
+  unusedBillingService,
 } from "../test/helpers.js";
 
 const password = "correct horse battery staple";
@@ -52,6 +53,7 @@ function setup() {
     authService,
     limiter: createRedisFixedWindowLimiter(redis),
     teamsService,
+    billingService: unusedBillingService,
     activityService: unusedActivityService,
     shiftsService: unusedShiftsService,
     swapsService: unusedSwapsService,
@@ -59,6 +61,7 @@ function setup() {
     passwords,
     emailSender,
     resetTtlMinutes: testResetTtlMinutes,
+    trustProxyHops: 0,
   });
 
   return {
@@ -291,3 +294,5 @@ describe("new Redis rate limits", () => {
     expect(await response.json()).toEqual({ error: "Service unavailable" });
   });
 });
+
+

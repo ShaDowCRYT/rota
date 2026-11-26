@@ -1,4 +1,4 @@
-import type { Server } from "node:http";
+﻿import type { Server } from "node:http";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -22,6 +22,7 @@ import {
   unusedPasswordResetRepository,
   unusedShiftsService,
   unusedSwapsService,
+  unusedBillingService,
 } from "../../test/helpers.js";
 import { createAuthService } from "../auth/service.js";
 import { createTeamsService } from "./service.js";
@@ -67,6 +68,7 @@ function setup() {
     authService,
     limiter: permissiveLimiter,
     teamsService,
+    billingService: unusedBillingService,
     activityService: unusedActivityService,
     shiftsService: unusedShiftsService,
     swapsService: unusedSwapsService,
@@ -74,9 +76,11 @@ function setup() {
     passwords,
     emailSender: unusedEmailSender,
     resetTtlMinutes: testResetTtlMinutes,
+    trustProxyHops: 0,
   });
 
-  return { authRepository, teamsRepository, tokens, teamsService, app };
+  return { authRepository, teamsRepository, tokens, teamsService,
+    billingService: unusedBillingService, app };
 }
 
 type Context = ReturnType<typeof setup>;
@@ -461,3 +465,5 @@ describe("invite lifecycle", () => {
     }
   });
 });
+
+

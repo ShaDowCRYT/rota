@@ -1,4 +1,4 @@
-import type { Server } from "node:http";
+﻿import type { Server } from "node:http";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -13,6 +13,7 @@ import {
   startServer,
   testResetTtlMinutes,
   unusedActivityService,
+  unusedBillingService,
   unusedAuthService,
   unusedEmailSender,
   unusedPasswordResetRepository,
@@ -40,6 +41,7 @@ function appWith(database: DatabaseCheck, redis: RedisCheck) {
     authService: unusedAuthService,
     limiter: permissiveLimiter,
     teamsService: unusedTeamsService,
+    billingService: unusedBillingService,
     activityService: unusedActivityService,
     shiftsService: unusedShiftsService,
     swapsService: unusedSwapsService,
@@ -47,6 +49,7 @@ function appWith(database: DatabaseCheck, redis: RedisCheck) {
     passwords: createFakePasswords(),
     emailSender: unusedEmailSender,
     resetTtlMinutes: testResetTtlMinutes,
+    trustProxyHops: 0,
   });
 }
 
@@ -165,3 +168,7 @@ describe("health routes", () => {
     expectNoErrorText(body);
   });
 });
+
+
+
+

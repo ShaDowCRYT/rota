@@ -1,4 +1,4 @@
-import type { Server } from "node:http";
+﻿import type { Server } from "node:http";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -18,6 +18,7 @@ import {
   unusedShiftsService,
   unusedSwapsService,
   unusedTeamsService,
+  unusedBillingService,
 } from "../test/helpers.js";
 import { createAuthService } from "../modules/auth/service.js";
 import {
@@ -43,6 +44,7 @@ function setup() {
     authService,
     limiter: createRedisFixedWindowLimiter(redis),
     teamsService: unusedTeamsService,
+    billingService: unusedBillingService,
     activityService: unusedActivityService,
     shiftsService: unusedShiftsService,
     swapsService: unusedSwapsService,
@@ -50,6 +52,7 @@ function setup() {
     passwords: createFakePasswords(),
     emailSender: unusedEmailSender,
     resetTtlMinutes: testResetTtlMinutes,
+    trustProxyHops: 0,
   });
 
   return { app, redis };
@@ -199,3 +202,5 @@ describe("endpoint rate limits", () => {
     expect(await response.json()).toEqual({ error: "Service unavailable" });
   });
 });
+
+
