@@ -16,6 +16,16 @@ export type AuthResult = {
 
 export type RefreshResult = AuthTokens;
 
+const SIGNUP = 'POST /auth/signup';
+const LOGIN = 'POST /auth/login';
+const GOOGLE = 'POST /auth/google';
+const FORGOT = 'POST /auth/forgot';
+const RESET = 'POST /auth/reset';
+const REFRESH = 'POST /auth/refresh';
+const LOGOUT = 'POST /auth/logout';
+const LOGOUT_ALL = 'POST /auth/logout-all';
+const GET_ME = 'GET /me';
+
 export async function signup(
   email: string,
   password: string,
@@ -26,7 +36,7 @@ export async function signup(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
-  await ensureOk(response);
+  await ensureOk(response, SIGNUP, 'POST');
   return parseAuthResult(await parseJson(response));
 }
 
@@ -40,7 +50,7 @@ export async function login(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
-  await ensureOk(response);
+  await ensureOk(response, LOGIN, 'POST');
   return parseAuthResult(await parseJson(response));
 }
 
@@ -53,7 +63,7 @@ export async function googleSignIn(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idToken }),
   });
-  await ensureOk(response);
+  await ensureOk(response, GOOGLE, 'POST');
   return parseAuthResult(await parseJson(response));
 }
 
@@ -66,7 +76,7 @@ export async function forgotPassword(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
   });
-  await ensureOk(response);
+  await ensureOk(response, FORGOT, 'POST');
 }
 
 export async function resetPassword(
@@ -79,7 +89,7 @@ export async function resetPassword(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token, newPassword }),
   });
-  await ensureOk(response);
+  await ensureOk(response, RESET, 'POST');
 }
 
 export async function refresh(
@@ -91,7 +101,7 @@ export async function refresh(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refreshToken }),
   });
-  await ensureOk(response);
+  await ensureOk(response, REFRESH, 'POST');
   return parseRefreshResult(await parseJson(response));
 }
 
@@ -104,7 +114,7 @@ export async function logout(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refreshToken }),
   });
-  await ensureOk(response);
+  await ensureOk(response, LOGOUT, 'POST');
 }
 
 export async function logoutAll(
@@ -115,12 +125,12 @@ export async function logoutAll(
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  await ensureOk(response);
+  await ensureOk(response, LOGOUT_ALL, 'POST');
 }
 
 export async function getMe(fetcher: FetchLike): Promise<SessionUser> {
   const response = await fetcher('/me', { method: 'GET' });
-  await ensureOk(response);
+  await ensureOk(response, GET_ME, 'GET');
   return parseUser(await parseJson(response));
 }
 

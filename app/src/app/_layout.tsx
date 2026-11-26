@@ -31,10 +31,11 @@ function RootNavigator() {
       <Stack.Screen name="forgot" />
       <Stack.Screen name="invite" />
       <Stack.Screen name="reset" />
+      <Stack.Screen name="accept-invite" />
+      <Stack.Screen name="join-invite" />
       <Stack.Protected guard={status === 'signedOut'}>
         <Stack.Screen name="login" />
         <Stack.Screen name="signup" />
-        <Stack.Screen name="accept-invite" />
       </Stack.Protected>
       <Stack.Protected guard={status === 'signedIn'}>
         <Stack.Screen name="home" />

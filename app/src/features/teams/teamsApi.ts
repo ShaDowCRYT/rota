@@ -1,8 +1,25 @@
 import { authedFetch as defaultAuthedFetch } from '../../api/authedFetch';
+import { assertUuid } from '../../api/ids';
 import { ensureOk, isRecord, parseJson } from '../../api/responses';
 import type { FetchLike } from '../../api/types';
 
 import { ApiFailure } from '../auth/errors';
+
+export const TEAM_STALE_TIME = 60_000;
+export const TEAM_GC_TIME = 10 * 60_000;
+export const MEMBER_STALE_TIME = 30_000;
+export const MEMBER_GC_TIME = 5 * 60_000;
+
+const LIST_TEAMS = 'GET /teams';
+const CREATE_TEAM = 'POST /teams';
+const GET_TEAM = 'GET /teams/:teamId';
+const GET_MEMBERS = 'GET /teams/:teamId/members';
+const CHANGE_ROLE = 'PATCH /teams/:teamId/members/:userId';
+const REMOVE_MEMBER = 'DELETE /teams/:teamId/members/:userId';
+const CREATE_INVITE = 'POST /teams/:teamId/invites';
+const LIST_INVITES = 'GET /teams/:teamId/invites';
+const REVOKE_INVITE = 'DELETE /teams/:teamId/invites/:inviteId';
+const ACCEPT_INVITE = 'POST /invites/accept';
 
 export type Role = 'owner' | 'manager' | 'staff';
 export type InviteRole = Exclude<Role, 'owner'>;
@@ -97,7 +114,7 @@ function parseList(value: unknown, parseItem: (item: unknown) => unknown): unkno
 
 export async function listTeams(fetcher: FetchLike = defaultAuthedFetch): Promise<TeamSummary[]> {
   const response = await fetcher('/teams', { method: 'GET' });
-  await ensureOk(response);
+  await ensureOk(response, LIST_TEAMS, 'GET');
   return parseList(await parseJson(response), parseTeamSummary) as TeamSummary[];
 }
 
@@ -110,7 +127,7 @@ export async function createTeam(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
   });
-  await ensureOk(response);
+  await ensureOk(response, CREATE_TEAM, 'POST');
   return parseTeamSummary(await parseJson(response));
 }
 
@@ -118,8 +135,9 @@ export async function getTeam(
   teamId: string,
   fetcher: FetchLike = defaultAuthedFetch,
 ): Promise<Team> {
+  assertUuid(teamId, GET_TEAM, 'GET');
   const response = await fetcher(`/teams/${encodeURIComponent(teamId)}`, { method: 'GET' });
-  await ensureOk(response);
+  await ensureOk(response, GET_TEAM, 'GET');
   return parseTeam(await parseJson(response));
 }
 
@@ -127,8 +145,9 @@ export async function getMembers(
   teamId: string,
   fetcher: FetchLike = defaultAuthedFetch,
 ): Promise<MemberView[]> {
+  assertUuid(teamId, GET_MEMBERS, 'GET');
   const response = await fetcher(`/teams/${encodeURIComponent(teamId)}/members`, { method: 'GET' });
-  await ensureOk(response);
+  await ensureOk(response, GET_MEMBERS, 'GET');
   return parseList(await parseJson(response), parseMember) as MemberView[];
 }
 
@@ -138,6 +157,8 @@ export async function changeRole(
   role: InviteRole,
   fetcher: FetchLike = defaultAuthedFetch,
 ): Promise<void> {
+  assertUuid(teamId, CHANGE_ROLE, 'PATCH');
+  assertUuid(userId, CHANGE_ROLE, 'PATCH');
   const response = await fetcher(
     `/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(userId)}`,
     {
@@ -146,7 +167,7 @@ export async function changeRole(
       body: JSON.stringify({ role }),
     },
   );
-  await ensureOk(response);
+  await ensureOk(response, CHANGE_ROLE, 'PATCH');
 }
 
 export async function removeMember(
@@ -154,11 +175,13 @@ export async function removeMember(
   userId: string,
   fetcher: FetchLike = defaultAuthedFetch,
 ): Promise<void> {
+  assertUuid(teamId, REMOVE_MEMBER, 'DELETE');
+  assertUuid(userId, REMOVE_MEMBER, 'DELETE');
   const response = await fetcher(
     `/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(userId)}`,
     { method: 'DELETE' },
   );
-  await ensureOk(response);
+  await ensureOk(response, REMOVE_MEMBER, 'DELETE');
 }
 
 export async function createInvite(
@@ -166,6 +189,7 @@ export async function createInvite(
   input: CreateInviteInput,
   fetcher: FetchLike = defaultAuthedFetch,
 ): Promise<CreatedInvite> {
+  assertUuid(teamId, CREATE_INVITE, 'POST');
   const body = input.email
     ? { email: input.email, role: input.role }
     : { role: input.role };
@@ -174,7 +198,7 @@ export async function createInvite(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  await ensureOk(response);
+  await ensureOk(response, CREATE_INVITE, 'POST');
   return parseInvite(await parseJson(response), true) as CreatedInvite;
 }
 
@@ -182,10 +206,11 @@ export async function listInvites(
   teamId: string,
   fetcher: FetchLike = defaultAuthedFetch,
 ): Promise<InviteView[]> {
+  assertUuid(teamId, LIST_INVITES, 'GET');
   const response = await fetcher(`/teams/${encodeURIComponent(teamId)}/invites`, {
     method: 'GET',
   });
-  await ensureOk(response);
+  await ensureOk(response, LIST_INVITES, 'GET');
   return parseList(await parseJson(response), (item) => parseInvite(item)) as InviteView[];
 }
 
@@ -194,11 +219,13 @@ export async function revokeInvite(
   inviteId: string,
   fetcher: FetchLike = defaultAuthedFetch,
 ): Promise<void> {
+  assertUuid(teamId, REVOKE_INVITE, 'DELETE');
+  assertUuid(inviteId, REVOKE_INVITE, 'DELETE');
   const response = await fetcher(
     `/teams/${encodeURIComponent(teamId)}/invites/${encodeURIComponent(inviteId)}`,
     { method: 'DELETE' },
   );
-  await ensureOk(response);
+  await ensureOk(response, REVOKE_INVITE, 'DELETE');
 }
 
 export async function acceptInvite(
@@ -210,6 +237,6 @@ export async function acceptInvite(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token }),
   });
-  await ensureOk(response);
+  await ensureOk(response, ACCEPT_INVITE, 'POST');
   return parseTeamSummary(await parseJson(response));
 }

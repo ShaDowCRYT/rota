@@ -1,5 +1,5 @@
 import React from 'react';
-import { ScrollView, RefreshControl } from 'react-native';
+import { ScrollView, RefreshControl, View } from 'react-native';
 
 import { useTheme } from '../theme/useTheme';
 
@@ -7,10 +7,19 @@ type Props = {
   children: React.ReactNode;
   refreshing?: boolean;
   onRefresh?: () => void;
+  scroll?: boolean;
 };
 
-export function Screen({ children, refreshing = false, onRefresh }: Props) {
+export function Screen({ children, refreshing = false, onRefresh, scroll = true }: Props) {
   const theme = useTheme();
+
+  if (!scroll) {
+    return (
+      <View style={{ flex: theme.layout.fill, backgroundColor: theme.colors.background }}>
+        {children}
+      </View>
+    );
+  }
 
   return (
     <ScrollView

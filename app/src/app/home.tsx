@@ -45,6 +45,13 @@ export default function HomeScreen() {
         accessibilityLabel="Create team"
       />
 
+      <Button
+        label="Join a team with an invite link"
+        variant="secondary"
+        onPress={() => router.push('/join-invite')}
+        accessibilityLabel="Join a team with an invite link"
+      />
+
       {isPending ? <StateView loading /> : null}
 
       {!isPending && errorMessage ? (
@@ -52,7 +59,17 @@ export default function HomeScreen() {
       ) : null}
 
       {!isPending && !errorMessage && teams.length === 0 ? (
-        <StateView emptyMessage="You are not in a team yet. Create one or open an invite link." />
+        <Card>
+          <View style={{ gap: theme.spacing.md }}>
+            <StateView emptyMessage="You are not in a team yet. Create one or join with an invite link." />
+            <Button
+              label="Join a team with an invite link"
+              variant="secondary"
+              onPress={() => router.push('/join-invite')}
+              accessibilityLabel="Join a team with an invite link from empty state"
+            />
+          </View>
+        </Card>
       ) : null}
 
       {!isPending && !errorMessage

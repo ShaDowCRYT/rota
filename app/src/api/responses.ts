@@ -1,10 +1,15 @@
 import type { FetchResponse } from './types';
 
-import { ApiFailure } from '../features/auth/errors';
+import { ApiFailure, readFailureReasonFromResponse } from '../features/auth/errors';
 
-export async function ensureOk(response: FetchResponse): Promise<void> {
+export async function ensureOk(
+  response: FetchResponse,
+  endpoint?: string,
+  method?: string,
+): Promise<void> {
   if (!response.ok) {
-    throw new ApiFailure(response.status, parseRetryAfter(response));
+    const reason = await readFailureReasonFromResponse(response);
+    throw new ApiFailure(response.status, parseRetryAfter(response), reason, endpoint, method);
   }
 }
 

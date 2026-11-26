@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import { ApiError } from '../../api/client';
-import { ApiFailure, GoogleSignInFailure, mapError, SessionEndedError } from './errors';
+import {
+  ApiFailure,
+  GoogleSignInFailure,
+  mapError,
+  readFailureReason,
+  SessionEndedError,
+} from './errors';
 
 describe('mapError', () => {
   it('maps network failures', () => {
@@ -14,6 +20,30 @@ describe('mapError', () => {
 
   it('maps validation errors', () => {
     expect(mapError(new ApiFailure(400)).kind).toBe('validation');
+  });
+
+  it('maps a GET 400 to the generic read message', () => {
+    const result = mapError(
+      new ApiFailure(400, undefined, undefined, 'GET /teams/:teamId/members', 'GET'),
+      'team',
+    );
+    expect(result.message).toBe('Something went wrong. Try again.');
+    expect(result.message).not.toContain('details');
+  });
+
+  it('keeps the details message for form 400s', () => {
+    const result = mapError(
+      new ApiFailure(400, undefined, undefined, 'POST /auth/signup', 'POST'),
+      'signup',
+    );
+    expect(result.message).toBe('Check your details and try again.');
+  });
+
+  it('maps a local invalid-id failure without leaking an id', () => {
+    const failure = new ApiFailure(0, undefined, undefined, 'GET /teams/:teamId', 'GET');
+    expect(failure.endpoint).toBe('GET /teams/:teamId');
+    expect(failure.status).toBe(0);
+    expect(mapError(failure, 'team').message).toBe('Something went wrong. Try again.');
   });
 
   it('maps invalid credentials', () => {
@@ -91,6 +121,12 @@ describe('mapError', () => {
     expect(result.message).toBe('You are already in this team.');
   });
 
+  it('maps the team creation limit conflict to a friendly message', () => {
+    const result = mapError(new ApiFailure(409, undefined, 'team_limit_reached'), 'team');
+    expect(result.kind).toBe('conflict');
+    expect(result.message).toBe('You have reached the limit of 5 teams');
+  });
+
   it('maps Google server and library failures without raw text', () => {
     const invalid = mapError(new ApiFailure(401), 'google');
     expect(invalid.kind).toBe('google');
@@ -106,5 +142,40 @@ describe('mapError', () => {
     expect(library.message).toContain('not set up correctly');
     expect(library.message).not.toContain(raw);
     expect(library.message).not.toContain('DEVELOPER_ERROR');
+  });
+
+  it('maps shift and swap conflicts to friendly messages without raw text', () => {
+    const raw = 'RAW-CONFLICT-DETAIL-MUST-NOT-SHOW';
+    const overlap = mapError(new ApiFailure(409, undefined, 'shift_overlap'), 'shift');
+    expect(overlap.message).toBe('That shift overlaps another shift for that person');
+    expect(overlap.message).not.toContain(raw);
+    expect(overlap.message).not.toContain('409');
+
+    const decided = mapError(new ApiFailure(409, undefined, 'swap_already_decided'), 'swap');
+    expect(decided.message).toBe('This request was already decided');
+
+    const duplicate = mapError(new ApiFailure(409, undefined, 'swap_already_pending'), 'swap');
+    expect(duplicate.message).toBe('A swap is already requested for this shift');
+  });
+
+  it('maps 403 and 404 in shift and swap contexts without raw text', () => {
+    const raw = 'RAW-PERMISSION-DETAIL-MUST-NOT-SHOW';
+    const forbidden = mapError(new ApiFailure(403), 'shift');
+    expect(forbidden.kind).toBe('forbidden');
+    expect(forbidden.message).not.toContain(raw);
+    expect(forbidden.message).not.toContain('403');
+
+    const missing = mapError(new ApiFailure(404), 'swap');
+    expect(missing.kind).toBe('not-found');
+    expect(missing.message).not.toContain(raw);
+    expect(missing.message).not.toContain('404');
+  });
+
+  it('reads only recognised server conflict reasons', () => {
+    expect(readFailureReason({ error: 'This shift overlaps another shift for that person' })).toBe(
+      'shift_overlap',
+    );
+    expect(readFailureReason({ error: 'RAW-CONFLICT-DETAIL-MUST-NOT-SHOW' })).toBeUndefined();
+    expect(readFailureReason({ error: 409 })).toBeUndefined();
   });
 });
