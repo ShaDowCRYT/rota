@@ -156,6 +156,13 @@ function checkTrackedTextForSecrets() {
       }
       content = fs.readFileSync(absolute, "utf8");
     } catch {
+      const deleted = spawnSync("git", ["ls-files", "--deleted", "--", file], {
+        cwd: root,
+        encoding: "utf8",
+      });
+      if (deleted.status === 0 && deleted.stdout.trim() === file) {
+        continue;
+      }
       unreadable.push(file);
       continue;
     }
