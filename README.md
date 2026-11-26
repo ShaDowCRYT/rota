@@ -4,10 +4,11 @@ A shift scheduling app for small teams, with seat-based billing.
 
 [![CI](https://github.com/ShaDowCRYT/rota/actions/workflows/ci.yml/badge.svg)](https://github.com/ShaDowCRYT/rota/actions/workflows/ci.yml)
 
-**Status:** In development. Phase 1 (auth and teams) is complete. Phase 2 (shifts and feed) is next.
+**Status:** In development. Phase 1 (auth and teams) is complete. The server side of Phases 2 and 3 is complete, and the app screens for shifts, activity, and swaps are now built.
 
-Done so far: Express server with health checks, PostgreSQL and Redis connections, Sentry on the server, CI, an Expo app with design tokens and live server status, email and Google sign-in, refresh-token rotation and logout, teams with server-side roles and isolation, invites and password reset with deep links, and automated tests with no `.env` needed.
-Next: Phase 2 (shifts and feed). Still to do: Sentry on the app, shifts, the activity feed, and the demo links.
+Done so far: Express server with health checks, PostgreSQL and Redis connections, Sentry on the server, CI, an Expo app with design tokens, email and Google sign-in, refresh-token rotation and logout, teams with server-side roles and isolation, invites and password reset with deep links, a week schedule, shift create/edit/delete, an infinite activity feed, and swap request/cancel/approve/reject with an optimistic UI.
+
+Next: Phase 4 (settings, push jobs, and offline shifts). Still to do: Sentry on the app, an Android development build, and the demo links.
 
 ## Demo
 
@@ -115,6 +116,15 @@ The app sends the Google ID token only to `POST /auth/google` on the Rota server
 
 Rota uses the `rota://` scheme. Invite links look like `rota://invite?token=...` and reset links look like `rota://reset?token=...`.
 
+### Join with an invite link
+
+1. Open Rota and sign in.
+2. On Home, tap "Join a team with an invite link" (it also appears when you are not in a team yet).
+3. Paste the whole invite link you were sent, or just the token, then tap "Continue".
+4. Review the invite and tap "Join this team".
+
+### Open a link with adb
+
 To open a link from a terminal with the phone connected by USB:
 
 ```bash
@@ -123,6 +133,30 @@ adb shell am start -a android.intent.action.VIEW -d "rota://reset?token=REPLACE_
 ```
 
 Replace the placeholders with a real token. Never commit a real token. The invite link is shown once on the invite screen right after you create it. On a development server, the reset link is written to the server log by the development email sender. The app keeps deep-link tokens in memory only: if you close the app before signing in, open the link again.
+
+### Production note
+
+A real release would use HTTPS App Links (a website plus an `assetlinks.json` file) so invite links open the app when tapped from chat or notes apps. The current `rota://` scheme works in development and with adb, but many apps do not make custom-scheme links tappable.
+
+## Manual test: Phase 2/3 app screens
+
+Use the Android development build (`npx expo start --dev-client -c`) with the local server running. Sign in as an Owner for steps 1-7, then sign in as a Staff member for steps 8-9.
+
+1. Open a team. Confirm four tabs: Schedule, Members, Activity, Swaps.
+2. In Members, change a member to manager and back to staff, then remove a member and cancel the confirmation once before confirming. Confirm a missing team redirects home.
+3. Create an invite, copy or share the link (it is shown once), confirm it appears in Pending invites, then revoke it after the confirmation.
+4. In Schedule, use Previous/Next week, then Create shift. Pick a teammate, a day chip, 15-minute start/end chips, and save. Confirm end-before-start shows "End time must be after start time." Create an overlapping shift and confirm "That shift overlaps another shift for that person".
+5. Open a shift. Confirm assignee email and local start/end time. As Owner/Manager you see Edit shift and Delete shift; use Delete once with its confirmation.
+6. Edit a shift, change the time or assignee, and save. Confirm the Schedule row updates.
+7. To seed the feed for your test team, run this from the `server` folder (replace `<id>` with the team UUID):
+
+   ```bash
+   npx tsx scripts/seed-activity.ts --team <id>
+   ```
+
+   Then open Activity, scroll to the bottom twice, pull to refresh, and confirm sentences use member emails and the list ends with "You are all caught up".
+8. As Staff, open one of your future shifts, tap Request swap, choose a teammate or "Open to the team", and send. The badge should say "Swap requested" immediately and the button should disable. Stop the server before sending on a second shift to confirm the label rolls back with a friendly message.
+9. In Swaps, cancel a pending request as Staff. Sign in as Owner/Manager and approve or reject a pending request; for an open request, choose the new assignee first. Confirm 409 messages read "This request was already decided" and "A swap is already requested for this shift".
 
 ## Production note: app store billing rules
 
