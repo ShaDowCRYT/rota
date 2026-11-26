@@ -174,9 +174,9 @@ node scripts/smoke.mjs https://YOUR-SERVICE.onrender.com
 
 1. In Render, create a **Blueprint** and connect the `ShaDowCRYT/rota` repo; Render reads `render.yaml` from the repo root.
 2. Confirm service: `rota-api`, Node, Frankfurt, Free, `rootDir server`, build `npm ci --include=dev && npm run build`, start `npm start`, health `/health`.
-3. Fill secret env vars marked `sync: false`: `DATABASE_URL`, `REDIS_URL`, `JWT_ACCESS_SECRET`, `GOOGLE_WEB_CLIENT_ID` (optional), `SENTRY_DSN` (optional). Keep `NODE_ENV=production` and `TRUST_PROXY_HOPS=1` as in the blueprint.
+3. Fill secret env vars marked `sync: false`: `DATABASE_URL`, `REDIS_URL`, `JWT_ACCESS_SECRET`, `GOOGLE_WEB_CLIENT_ID` (optional), `SENTRY_DSN` (optional). Keep `NODE_ENV=production` and `TRUST_PROXY_HOPS=2` as in the blueprint.
 4. Deploy. After first deploy, run `node scripts/smoke.mjs https://<your-service>.onrender.com`.
-5. Safe post-deploy IP check: verify rate-limit/429 behavior from your real client and confirm logs show the expected client IP; do not add a debug IP endpoint. `TRUST_PROXY_HOPS=1` is correct for Render's public proxy path (Render sets/forwards `X-Forwarded-For`; see Render DDoS article). If you observe proxy-internal IPs in logs, stop and recheck hop count before increasing.
+5. Safe post-deploy IP check: verify rate-limit/429 behavior from your real client and confirm logs show the expected client IP; do not add a debug IP endpoint. `TRUST_PROXY_HOPS=2` is used for Render's public proxy path; if you observe proxy-internal or unexpected client IPs in logs, stop and recheck hop count before changing.
 
 ### Free-plan and shared-dev notes
 
