@@ -29,6 +29,13 @@
       "when": 1795349396585,
       "tag": "0003_google_sub",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795681400768,
+      "tag": "0004_billing_plans",
+      "breakpoints": true
     }
   ]
 }

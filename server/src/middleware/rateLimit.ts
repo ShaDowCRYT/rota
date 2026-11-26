@@ -209,3 +209,11 @@ export function swapListRateLimit(limiter: RateLimiter): RequestHandler {
     key: (req) => `rl:swaps:user:${req.user?.id ?? "unknown"}`,
   });
 }
+
+export function billingQuoteRateLimit(limiter: RateLimiter): RequestHandler {
+  return rateLimit(limiter, {
+    limit: 30,
+    windowSeconds: 900,
+    key: (req) => `rl:billing:quote:user:${req.user?.id ?? "unknown"}`,
+  });
+}

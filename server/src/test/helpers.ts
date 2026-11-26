@@ -31,6 +31,7 @@ import {
 } from "../modules/auth/types.js";
 import { createActivityService } from "../modules/activity/service.js";
 import { createAuthService } from "../modules/auth/service.js";
+import type { BillingService } from "../modules/billing/types.js";
 import { createShiftsService } from "../modules/shifts/service.js";
 import type {
   NewShift,
@@ -167,6 +168,19 @@ export const unusedTeamsService: TeamsService = {
   async acceptInvite() {
     throw new Error("unused in this test");
   },
+};
+
+export const unusedBillingService: BillingService = {
+  async getPlans() {
+    return [];
+  },
+  async getStatus() {
+    throw new Error("unused in this test");
+  },
+  async quoteChange() {
+    throw new Error("unused in this test");
+  },
+  async assertSeatAvailable() {},
 };
 
 export const unusedActivityService: ActivityService = {

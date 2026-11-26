@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   check,
   index,
+  integer,
   jsonb,
   pgEnum,
   pgTable,
@@ -128,3 +129,78 @@ export const activityEvents = pgTable("activity_events", {
     table.id.desc(),
   ),
 ]);
+
+export const subscriptionStatus = pgEnum("subscription_status", [
+  "none",
+  "active",
+  "past_due",
+  "restricted",
+]);
+
+export const ledgerEntryType = pgEnum("ledger_entry_type", [
+  "charge",
+  "credit",
+  "refund",
+  "adjustment",
+  "plan_change",
+  "seat_change",
+  "renewal",
+]);
+
+// Shard group: subscriptions belong to a team. plan_id is a plain text ID because plans live in the global database.
+export const subscriptions = pgTable(
+  "subscriptions",
+  {
+    teamId: uuid("team_id")
+      .primaryKey()
+      .references(() => teams.id),
+    planId: text("plan_id").notNull(),
+    seats: integer("seats").notNull(),
+    periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+    periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+    status: subscriptionStatus("status").notNull().default("none"),
+    pendingPlanId: text("pending_plan_id"),
+    pendingSeats: integer("pending_seats"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check("subscriptions_seats_check", sql`${table.seats} > 0`),
+    check(
+      "subscriptions_pending_seats_check",
+      sql`${table.pendingSeats} is null or ${table.pendingSeats} > 0`,
+    ),
+  ],
+);
+
+// Shard group: ledger entries are team billing history. Append-only is enforced by a migration trigger.
+export const ledgerEntries = pgTable(
+  "ledger_entries",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    teamId: uuid("team_id")
+      .notNull()
+      .references(() => teams.id),
+    type: ledgerEntryType("type").notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    currency: text("currency").notNull().default("USD"),
+    ref: text("ref").notNull(),
+    planId: text("plan_id"),
+    seats: integer("seats"),
+    periodStart: timestamp("period_start", { withTimezone: true }),
+    periodEnd: timestamp("period_end", { withTimezone: true }),
+    idempotencyRef: text("idempotency_ref"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("ledger_entries_team_created_idx").on(table.teamId, table.createdAt),
+    uniqueIndex("ledger_entries_team_idempotency_ref_idx")
+      .on(table.teamId, table.idempotencyRef)
+      .where(sql`${table.idempotencyRef} is not null`),
+  ],
+);

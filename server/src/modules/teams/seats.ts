@@ -1,3 +1,14 @@
-export async function assertSeatAvailable(_teamId: string): Promise<void> {
-  // Billing (Phase 5) will enforce seat limits; this hook allows all invites until then.
+import type { BillingService } from "../billing/types.js";
+
+let billingService: BillingService | undefined;
+
+export function configureSeatLimitService(service: BillingService): void {
+  billingService = service;
+}
+
+export async function assertSeatAvailable(teamId: string): Promise<void> {
+  if (billingService === undefined) {
+    return;
+  }
+  await billingService.assertSeatAvailable(teamId);
 }

@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   check,
   index,
+  integer,
   pgTable,
   primaryKey,
   text,
@@ -117,4 +118,29 @@ export const passwordResetTokens = pgTable(
       .defaultNow(),
   },
   (table) => [index("password_reset_tokens_user_id_idx").on(table.userId)],
+);
+
+// Global group: plan definitions are shared product data, not owned by a team.
+export const plans = pgTable(
+  "plans",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    priceCents: integer("price_cents").notNull(),
+    includedSeats: integer("included_seats").notNull(),
+    extraSeatCents: integer("extra_seat_cents"),
+    maxSeats: integer("max_seats").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    check("plans_price_cents_check", sql`${table.priceCents} >= 0`),
+    check("plans_included_seats_check", sql`${table.includedSeats} > 0`),
+    check("plans_max_seats_check", sql`${table.maxSeats} >= ${table.includedSeats}`),
+    check(
+      "plans_extra_seat_cents_check",
+      sql`${table.extraSeatCents} is null or ${table.extraSeatCents} >= 0`,
+    ),
+  ],
 );
