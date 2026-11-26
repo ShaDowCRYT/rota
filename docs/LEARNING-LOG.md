@@ -180,3 +180,13 @@ Invitation tokens are consumed before membership is created. If something fails 
 Finally, malformed JSON requests return a 400 error, and Redis rate limiting uses an atomic operation to prevent incorrect request counts.
 
 In simple terms: Rota's backend can now manage teams, control user permissions, keep team data separate, and handle invitations and password resets securely.
+
+## 2026-11-26: Phases 2 and 3, shifts, feed, swaps, and app
+
+Phases 2 and 3 gave Rota its main features: shift scheduling, activity feeds, and shift swapping with manager approval. Both the backend and mobile app were built, including permissions, team isolation, and invitation features.
+
+The system was improved to prevent overlapping shifts, duplicate requests, and conflicting approvals. Database indexing also made the activity feed much faster.
+
+Some issues were discovered during phone testing, especially with team navigation and invite links, and were fixed.
+
+Overall, this phase taught me the importance of database security, handling simultaneous requests, proper state management, and testing on real devices rather than relying only on automated tests.
