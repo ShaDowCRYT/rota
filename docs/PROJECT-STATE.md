@@ -51,7 +51,7 @@ The app type check, lint, and 127 tests also passed directly before verification
 
 ## Next phase
 
-Phase 4 adds settings sync, BullMQ push jobs, quiet hours, offline shifts and swaps, the Android development build, app Sentry, and the demo links.
+Billing first (Phase 5): plans, proration, Flutterwave test mode, webhooks, ledger, and seat limits. Then Phase 4: settings sync, push notifications and quiet hours, offline shifts, Android development build, app Sentry, and demo links.
 
 ## Reminders
 
