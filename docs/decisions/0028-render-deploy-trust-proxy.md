@@ -11,7 +11,7 @@ Rota needs a simple first deployment on Render (free Node web service, Frankfurt
 ## Decision
 
 - Add `TRUST_PROXY_HOPS` env var: integer 0-3, default 0. When > 0, `app.set("trust proxy", TRUST_PROXY_HOPS)`. Default 0 preserves safe local behavior (spoofed `X-Forwarded-For` ignored).
-- For Render public web service, set `TRUST_PROXY_HOPS=2`. Render docs show `app.set('trust proxy', 1)` and traffic passes Cloudflare + Render load balancers (https://render.com/articles/how-render-handles-ddos-attacks, fetched 2026-11-26); deploy observation required two hops for the real client IP in this setup, so blueprint defaults to 2 with post-deploy IP verification before changing.
+- For Render public web service, set `TRUST_PROXY_HOPS=2`. First guess was 1 hop from Render docs showing `app.set('trust proxy', 1)` (https://render.com/articles/how-render-handles-ddos-attacks, fetched 2026-11-26). Verified on 26 Nov 2026 from two different public addresses: with the wrong hop count users shared one rate-limit counter; with 2 hops address A hit the limit at request 11 and address B got its own counter. Two hops matches Cloudflare plus Render's load balancer.
 - Add root `render.yaml` Blueprint: `rota-api`, `runtime: node`, `region: frankfurt`, `plan: free`, `rootDir: server`, build `npm ci --include=dev && npm run build`, start `npm start`, health `/health`, `autoDeployTrigger: commit`, env vars with secrets `sync: false`. Format follows Render Blueprint YAML Reference (https://render.com/docs/blueprint-spec, fetched 2026-11-26).
 - Add `scripts/smoke.mjs` (plain Node, GET-only) and README deploy/smoke instructions. No debug IP endpoint.
 
