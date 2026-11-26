@@ -76,6 +76,10 @@ export const envSchema = z.object({
         "REDIS_URL must be a valid redis:// or rediss:// URL",
       ),
   ),
+  TRUST_PROXY_HOPS: z.preprocess(
+    emptyToUndefined,
+    z.coerce.number().int().min(0).max(3).default(0),
+  ),
   DB_POOL_MAX: z.preprocess(
     emptyToUndefined,
     z.coerce.number().int().min(1).max(20).default(10),

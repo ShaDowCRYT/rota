@@ -29,6 +29,9 @@ import { createSwapsRepository } from "./modules/swaps/repository.js";
 import { createSwapsService } from "./modules/swaps/service.js";
 import { createTeamsRepository } from "./modules/teams/repository.js";
 import { createTeamsService } from "./modules/teams/service.js";
+import { configureSeatLimitService } from "./modules/teams/seats.js";
+import { createBillingRepository } from "./modules/billing/repository.js";
+import { createBillingService } from "./modules/billing/service.js";
 import { createDevEmailSender } from "./providers/email.js";
 
 initSentry({ dsn: env.SENTRY_DSN, environment: env.NODE_ENV });
@@ -53,6 +56,18 @@ const teamsService = createTeamsService({
   authService,
   inviteTtlDays: env.INVITE_TTL_DAYS,
 });
+
+const billingService = createBillingService({
+  repository: createBillingRepository(database),
+  transactions: runShardTransaction,
+  now: () => new Date(),
+  redis: {
+    set: (key, value, mode, seconds, nx) => redis.set(key, value, mode, seconds, nx),
+    eval: (script, keys, args) =>
+      redis.eval(script, keys.length, ...keys, ...args) as Promise<unknown>,
+  },
+});
+configureSeatLimitService(billingService);
 
 const activityService = createActivityService(createActivityRepository());
 
@@ -85,6 +100,7 @@ const app = createApp({
   authService,
   limiter: createRedisFixedWindowLimiter(limiterRedis),
   teamsService,
+  billingService,
   activityService,
   shiftsService,
   swapsService,
@@ -92,6 +108,7 @@ const app = createApp({
   passwords,
   emailSender: createDevEmailSender(env.NODE_ENV),
   resetTtlMinutes: env.RESET_TOKEN_TTL_MINUTES,
+  trustProxyHops: env.TRUST_PROXY_HOPS,
   googleAudience: env.GOOGLE_WEB_CLIENT_ID,
   googleJwks: createRemoteJWKSet(
     new URL("https://www.googleapis.com/oauth2/v3/certs"),
@@ -101,7 +118,7 @@ const app = createApp({
 Sentry.setupExpressErrorHandler(app);
 app.use(errorHandler);
 
-const server = app.listen(env.PORT, () => {
+const server = app.listen(env.PORT, "0.0.0.0", () => {
   logger.info("server listening", { port: env.PORT });
 });
 

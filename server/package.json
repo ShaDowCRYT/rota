@@ -5,6 +5,9 @@
   "private": true,
   "main": "dist/index.js",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",

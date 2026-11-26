@@ -10,6 +10,19 @@ const baseEnv = {
   JWT_ACCESS_SECRET: "0123456789abcdef0123456789abcdef",
 };
 
+describe("TRUST_PROXY_HOPS", () => {
+  it("defaults to 0 and accepts 0-3", () => {
+    expect(envSchema.parse(baseEnv).TRUST_PROXY_HOPS).toBe(0);
+    expect(envSchema.parse({ ...baseEnv, TRUST_PROXY_HOPS: "1" }).TRUST_PROXY_HOPS).toBe(1);
+    expect(envSchema.parse({ ...baseEnv, TRUST_PROXY_HOPS: "3" }).TRUST_PROXY_HOPS).toBe(3);
+  });
+
+  it("rejects values outside 0-3", () => {
+    expect(envSchema.safeParse({ ...baseEnv, TRUST_PROXY_HOPS: "-1" }).success).toBe(false);
+    expect(envSchema.safeParse({ ...baseEnv, TRUST_PROXY_HOPS: "4" }).success).toBe(false);
+  });
+});
+
 function parseWithGoogle(value?: string) {
   return envSchema.safeParse(
     value === undefined ? baseEnv : { ...baseEnv, GOOGLE_WEB_CLIENT_ID: value },

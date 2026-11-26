@@ -21,6 +21,8 @@ import { createSwapsRouter } from "./modules/swaps/routes.js";
 import type { SwapsService } from "./modules/swaps/types.js";
 import { createTeamsRouter } from "./modules/teams/routes.js";
 import type { TeamsService } from "./modules/teams/types.js";
+import { createBillingRouter } from "./modules/billing/routes.js";
+import type { BillingService } from "./modules/billing/types.js";
 
 export type DatabaseCheck = () => Promise<void>;
 export type RedisCheck = () => Promise<boolean>;
@@ -31,6 +33,7 @@ export interface AppDependencies {
   authService: AuthService;
   limiter: RateLimiter;
   teamsService: TeamsService;
+  billingService: BillingService;
   activityService: ActivityService;
   shiftsService: ShiftsService;
   swapsService: SwapsService;
@@ -38,6 +41,7 @@ export interface AppDependencies {
   passwords: PasswordService;
   emailSender: EmailSender;
   resetTtlMinutes: number;
+  trustProxyHops: number;
   googleAudience?: string;
   googleJwks?: JWTVerifyGetKey;
 }
@@ -59,6 +63,9 @@ async function runCheck(
 export function createApp(deps: AppDependencies): Express {
   const app = express();
   app.disable("x-powered-by");
+  if (deps.trustProxyHops > 0) {
+    app.set("trust proxy", deps.trustProxyHops);
+  }
   app.use(express.json({ limit: "10kb" }));
 
   app.use((req, res, next) => {
@@ -124,6 +131,14 @@ export function createApp(deps: AppDependencies): Express {
     createAuthRouter(deps.authService, resetService, deps.limiter, googleService),
   );
   app.use(createTeamsRouter(deps.authService, deps.teamsService, deps.limiter));
+  app.use(
+    createBillingRouter(
+      deps.authService,
+      deps.billingService,
+      deps.teamsService,
+      deps.limiter,
+    ),
+  );
   app.use(
     createActivityRouter(
       deps.authService,
