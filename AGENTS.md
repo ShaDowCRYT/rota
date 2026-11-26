@@ -9,7 +9,7 @@ Rota is a shift scheduling app for small teams (restaurants, clinics, retail). A
 
 - Building: Mobile Task A, PRD Draft v1.0. The PRD is the source of truth. It lives at `docs/Rota-PRD.md`.
 - If the PRD and this file disagree about what to build, stop and ask.
-- Current phase: **2 and 3 app work** (shifts, activity feed, swaps screens; server side is done). The developer updates this line.
+- Current phase: **5 Billing** (plans, proration, Flutterwave test mode, webhooks, ledger, seat limits). Phase 4 items (settings sync, push notifications and quiet hours, offline shifts) are LATER; do not build them until the developer changes this line. Phases 2 and 3 are done.
 - Platform: Android development build only.
 - The developer is a beginner. Before each step, explain it in simple English. Explain any new term in one line. Do one task at a time and wait for "ok" before the next.
 
