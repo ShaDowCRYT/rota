@@ -80,6 +80,34 @@ export const envSchema = z.object({
     emptyToUndefined,
     z.coerce.number().int().min(0).max(3).default(0),
   ),
+  FLUTTERWAVE_SECRET_KEY: z.preprocess(
+    emptyToUndefined,
+    z.string().trim().min(1).optional(),
+  ),
+  FLUTTERWAVE_SECRET_HASH: z.preprocess(
+    emptyToUndefined,
+    z.string().trim().min(1).optional(),
+  ),
+  BILLING_CURRENCY: z.preprocess(
+    emptyToUndefined,
+    z
+      .string()
+      .trim()
+      .toUpperCase()
+      .regex(/^[A-Z]{3}$/, "BILLING_CURRENCY must be 3 uppercase letters")
+      .default("USD"),
+  ),
+  PUBLIC_API_URL: z.preprocess(
+    emptyToUndefined,
+    z.url("PUBLIC_API_URL must be a valid URL").optional(),
+  ),
+  RUN_WORKER: z.preprocess(
+    emptyToUndefined,
+    z
+      .enum(["true", "false"])
+      .transform((value) => value === "true")
+      .default(true),
+  ),
   DB_POOL_MAX: z.preprocess(
     emptyToUndefined,
     z.coerce.number().int().min(1).max(20).default(10),
@@ -132,6 +160,22 @@ export class EnvironmentError extends Error {
   }
 }
 
+function isHttpsUrl(value: string): boolean {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export function paymentsConfigured(env: Environment): boolean {
+  return (
+    env.FLUTTERWAVE_SECRET_KEY !== undefined &&
+    env.FLUTTERWAVE_SECRET_HASH !== undefined &&
+    env.PUBLIC_API_URL !== undefined
+  );
+}
+
 export function parseEnvironment(values: NodeJS.ProcessEnv): Environment {
   const parsed = envSchema.safeParse(values);
 
@@ -141,5 +185,14 @@ export function parseEnvironment(values: NodeJS.ProcessEnv): Environment {
     );
   }
 
-  return parsed.data;
+  const env = parsed.data;
+  if (env.NODE_ENV === "production" && env.PUBLIC_API_URL !== undefined) {
+    if (!isHttpsUrl(env.PUBLIC_API_URL)) {
+      throw new EnvironmentError(
+        "Invalid environment configuration:\nPUBLIC_API_URL must use https in production",
+      );
+    }
+  }
+
+  return env;
 }

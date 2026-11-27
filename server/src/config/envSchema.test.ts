@@ -29,6 +29,20 @@ function parseWithGoogle(value?: string) {
   );
 }
 
+describe("billing/payment env", () => {
+  it("defaults billing currency and worker", () => {
+    const parsed = envSchema.parse(baseEnv);
+    expect(parsed.BILLING_CURRENCY).toBe("USD");
+    expect(parsed.RUN_WORKER).toBe(true);
+    expect(parsed.FLUTTERWAVE_SECRET_KEY).toBeUndefined();
+  });
+
+  it("rejects invalid billing currency and RUN_WORKER", () => {
+    expect(envSchema.safeParse({ ...baseEnv, BILLING_CURRENCY: "US" }).success).toBe(false);
+    expect(envSchema.safeParse({ ...baseEnv, RUN_WORKER: "yes" }).success).toBe(false);
+  });
+});
+
 describe("GOOGLE_WEB_CLIENT_ID", () => {
   it("trims surrounding whitespace", () => {
     const result = parseWithGoogle(

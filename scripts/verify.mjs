@@ -16,6 +16,11 @@ const settingsKeys = [
   "JWT_ACCESS_SECRET",
   "SENTRY_DSN",
   "TRUST_PROXY_HOPS",
+  "FLUTTERWAVE_SECRET_KEY",
+  "FLUTTERWAVE_SECRET_HASH",
+  "BILLING_CURRENCY",
+  "PUBLIC_API_URL",
+  "RUN_WORKER",
 ];
 
 const sensitiveKeyPattern =

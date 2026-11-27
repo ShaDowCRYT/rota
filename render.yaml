@@ -24,3 +24,13 @@
         sync: false
       - key: SENTRY_DSN
         sync: false
+      - key: PUBLIC_API_URL
+        value: https://rota-api-nmg8.onrender.com
+      - key: BILLING_CURRENCY
+        value: USD
+      - key: RUN_WORKER
+        value: "true"
+      - key: FLUTTERWAVE_SECRET_KEY
+        sync: false
+      - key: FLUTTERWAVE_SECRET_HASH
+        sync: false
