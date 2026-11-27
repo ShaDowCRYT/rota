@@ -7,7 +7,12 @@ import { requireTeamRole } from "../../middleware/teamRole.js";
 import type { AuthService } from "../auth/service.js";
 import type { TeamsService } from "../teams/types.js";
 import { quoteRequestSchema } from "./schema.js";
-import { checkoutRequestSchema, idempotencyKeyHeaderSchema, scheduleChangeRequestSchema } from "./checkoutSchema.js";
+import {
+  checkoutRequestSchema,
+  idempotencyKeyHeaderSchema,
+  renewalCheckoutRequestSchema,
+  scheduleChangeRequestSchema,
+} from "./checkoutSchema.js";
 import { toHttpError } from "./proration.js";
 import type { BillingService } from "./types.js";
 
@@ -31,7 +36,7 @@ export function createBillingRouter(
   router.get(
     "/teams/:teamId/billing",
     requireAuth(authService),
-    requireTeamRole(teamsService, "owner"),
+    requireTeamRole(teamsService),
     async (req, res, next) => {
       if (!requirePayments(next)) return;
       const teamId = req.team?.id;
@@ -40,7 +45,7 @@ export function createBillingRouter(
         return;
       }
       try {
-        res.json(await service.getStatus(teamId));
+        res.json(await service.getStatus(teamId, req.team?.role));
       } catch (error) {
         next(toHttpError(error) ?? error);
       }
@@ -123,6 +128,28 @@ export function createBillingRouter(
       }
       try {
         res.json(await service.scheduleChange(teamId, userId, keyParsed.data, bodyParsed.data));
+      } catch (error) {
+        next(toHttpError(error) ?? error);
+      }
+    },
+  );
+
+  router.post(
+    "/teams/:teamId/billing/renewal-checkout",
+    requireAuth(authService),
+    requireTeamRole(teamsService, "owner"),
+    billingCheckoutRateLimit(limiter),
+    async (req, res, next) => {
+      if (!requirePayments(next)) return;
+      const teamId = req.team?.id;
+      const email = req.user?.email;
+      const parsed = renewalCheckoutRequestSchema.safeParse(req.body);
+      if (teamId === undefined || email === undefined || !parsed.success) {
+        next(new HttpError(400, "Invalid request"));
+        return;
+      }
+      try {
+        res.json(await service.createRenewalCheckout(teamId, parsed.data.paymentId, email));
       } catch (error) {
         next(toHttpError(error) ?? error);
       }

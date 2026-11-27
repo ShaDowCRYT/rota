@@ -18,6 +18,7 @@ type PaymentRepository = ReturnType<typeof createPaymentRepository>;
 import type { IdempotencyRepository } from "./idempotency.js";
 import { beginIdempotentRequest } from "./idempotency.js";
 import type { ActivityService } from "../activity/types.js";
+import type { Role } from "../teams/types.js";
 import type { Database } from "../../db/client.js";
 
 interface RedisLock {
@@ -34,6 +35,10 @@ function toStatus(
   periodEnd: Date | null,
   pendingPlanId: PlanId | null,
   pendingSeats: number | null,
+  graceEndsAt: Date | null,
+  lastNotice: number,
+  amountDueCents: number | null,
+  renewalCheckoutUrl: string | null,
   latestPaymentStatus: BillingStatus["latestPaymentStatus"],
 ): BillingStatus {
   const plan = PLANS[planId];
@@ -47,7 +52,11 @@ function toStatus(
     periodEnd: periodEnd?.toISOString() ?? null,
     pendingPlanId,
     pendingSeats,
+    graceEndsAt: graceEndsAt?.toISOString() ?? null,
+    lastNotice,
     monthlyTotalCents: monthlyTotal(plan, seats),
+    amountDueCents,
+    renewalCheckoutUrl,
     latestPaymentStatus,
   };
 }
@@ -75,16 +84,39 @@ return 0
 `;
 
 export function createBillingService(deps: BillingServiceDeps): BillingService {
-  async function getStatus(teamId: string): Promise<BillingStatus> {
+  async function getStatus(teamId: string, viewerRole?: Role): Promise<BillingStatus> {
     const [subscription, seatsUsed, latestPayment] = await Promise.all([
       deps.repository.getSubscription(teamId),
       deps.repository.countSeatsUsed(teamId),
       deps.paymentRepository.getLatestPayment(teamId),
     ]);
 
+    const status = subscription?.status ?? "none";
+    const ownerMaySeeRenewal =
+      viewerRole === "owner" && (status === "past_due" || status === "restricted");
+    const renewalPayment = ownerMaySeeRenewal
+      ? await deps.paymentRepository.getLatestRenewalPayment(teamId)
+      : undefined;
+    const amountDueCents = ownerMaySeeRenewal ? (renewalPayment?.amountCents ?? null) : null;
+    const renewalCheckoutUrl = ownerMaySeeRenewal ? (renewalPayment?.checkoutUrl ?? null) : null;
     const latestPaymentStatus = latestPayment?.status ?? null;
+
     if (subscription === undefined) {
-      return toStatus("starter", "none", 5, seatsUsed, null, null, null, null, latestPaymentStatus);
+      return toStatus(
+        "starter",
+        "none",
+        5,
+        seatsUsed,
+        null,
+        null,
+        null,
+        null,
+        null,
+        0,
+        null,
+        null,
+        latestPaymentStatus,
+      );
     }
 
     return toStatus(
@@ -96,6 +128,10 @@ export function createBillingService(deps: BillingServiceDeps): BillingService {
       subscription.periodEnd,
       subscription.pendingPlanId,
       subscription.pendingSeats,
+      subscription.graceEndsAt,
+      subscription.lastNotice,
+      amountDueCents,
+      renewalCheckoutUrl,
       latestPaymentStatus,
     );
   }
@@ -132,6 +168,95 @@ export function createBillingService(deps: BillingServiceDeps): BillingService {
     },
 
     getStatus,
+
+    async assertTeamWritable(teamId) {
+      const subscription = await deps.repository.getSubscription(teamId);
+      if (subscription?.status === "restricted") {
+        throw new HttpError(402, "This team's subscription needs attention");
+      }
+    },
+
+    async createRenewalCheckout(teamId, paymentId, email) {
+      assertPaymentsReady();
+      const provider = deps.provider!;
+      const publicApiUrl = deps.publicApiUrl!;
+      const payment = await deps.paymentRepository.getPaymentById(teamId, paymentId);
+      if (payment === undefined || payment.kind !== "renewal") {
+        throw new HttpError(404, "Renewal payment not found");
+      }
+      if (payment.checkoutUrl !== null) {
+        return {
+          checkoutUrl: payment.checkoutUrl,
+          paymentId,
+          amountCents: payment.amountCents,
+          currency: payment.currency,
+        };
+      }
+
+      const begun = await beginIdempotentRequest(
+        deps.idempotencyRepository,
+        deps.globalDb,
+        payment.createdBy,
+        `renewal:${paymentId}`,
+        {
+          method: "POST",
+          path: `/teams/${teamId}/billing/renewal-checkout`,
+          teamId,
+          planId: payment.planId,
+          seats: payment.seats,
+        },
+      );
+      if (begun.replay) {
+        return begun.replay.body as CheckoutResult;
+      }
+
+      try {
+        const checkout = await provider.createCheckout({
+          txRef: payment.txRef,
+          amountCents: payment.amountCents,
+          currency: payment.currency,
+          redirectUrl: `${publicApiUrl.replace(/\/$/, "")}/billing/return`,
+          customerEmail: email,
+          title: "Rota subscription renewal",
+          meta: { teamId, paymentId, kind: "renewal" },
+        });
+        const stored = await deps.paymentRepository.setCheckoutUrl(teamId, paymentId, checkout.checkoutUrl);
+        let checkoutUrl = checkout.checkoutUrl;
+        if (!stored) {
+          const existing = await deps.paymentRepository.getPaymentById(teamId, paymentId);
+          if (existing?.checkoutUrl === undefined || existing.checkoutUrl === null) {
+            throw new HttpError(409, "Renewal checkout already in progress");
+          }
+          checkoutUrl = existing.checkoutUrl;
+        }
+        const response: CheckoutResult = {
+          checkoutUrl,
+          paymentId,
+          amountCents: payment.amountCents,
+          currency: payment.currency,
+        };
+        await deps.idempotencyRepository.markCompleted(
+          deps.globalDb,
+          payment.createdBy,
+          `renewal:${paymentId}`,
+          begun.requestHash,
+          200,
+          response,
+        );
+        return response;
+      } catch (error) {
+        await deps.idempotencyRepository
+          .deleteInProgress(
+            deps.globalDb,
+            payment.createdBy,
+            `renewal:${paymentId}`,
+            begun.requestHash,
+          )
+          .catch(() => undefined);
+        if (error instanceof HttpError) throw error;
+        throw new HttpError(502, "Payment provider unavailable");
+      }
+    },
 
     async quoteChange(teamId, input) {
       const { quote } = await quoteForTeam(teamId, { planId: input.newPlanId, seats: input.newSeats });
@@ -256,7 +381,7 @@ export function createBillingService(deps: BillingServiceDeps): BillingService {
       }
 
       try {
-        const { status, quote, periodEnd } = await quoteForTeam(teamId, input);
+        const { status, subscription, quote, periodEnd } = await quoteForTeam(teamId, input);
         if (status.status === "none" || quote.kind !== "scheduled") {
           await deps.idempotencyRepository.deleteInProgress(deps.globalDb, userId, idempotencyKey, begun.requestHash);
           throw new HttpError(409, "This change is not schedulable");
@@ -273,6 +398,8 @@ export function createBillingService(deps: BillingServiceDeps): BillingService {
             status: status.status,
             pendingPlanId: input.planId,
             pendingSeats: input.seats,
+            graceEndsAt: subscription?.graceEndsAt ?? null,
+            lastNotice: subscription?.lastNotice ?? 0,
           });
           await deps.repository.appendLedgerEntry(executor, {
             teamId,

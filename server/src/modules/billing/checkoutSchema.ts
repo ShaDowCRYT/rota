@@ -16,3 +16,9 @@ export const checkoutRequestSchema = z
   .strict();
 
 export const scheduleChangeRequestSchema = checkoutRequestSchema;
+
+export const renewalCheckoutRequestSchema = z
+  .object({
+    paymentId: z.string().uuid(),
+  })
+  .strict();

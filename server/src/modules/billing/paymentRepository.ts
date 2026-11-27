@@ -1,8 +1,8 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 
 import type { Database } from "../../db/client.js";
 import { payments, webhookEvents } from "../../db/schema/shard.js";
-import { getShardFor } from "../../db/shard.js";
+import { getAllShards, getShardFor } from "../../db/shard.js";
 import type { SqlExecutor } from "../../db/types.js";
 import { isUniqueViolation } from "../../lib/errors.js";
 
@@ -10,7 +10,7 @@ export interface PaymentRow {
   id: string;
   teamId: string;
   txRef: string;
-  kind: "initial" | "change";
+  kind: "initial" | "change" | "renewal";
   amountCents: number;
   currency: string;
   planId: string;
@@ -18,6 +18,7 @@ export interface PaymentRow {
   quote: unknown | null;
   status: "pending" | "succeeded" | "failed" | "expired";
   providerTxId: string | null;
+  checkoutUrl: string | null;
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
@@ -47,6 +48,7 @@ function toPayment(row: typeof payments.$inferSelect): PaymentRow {
     quote: row.quote ?? null,
     status: row.status as PaymentRow["status"],
     providerTxId: row.providerTxId ?? null,
+    checkoutUrl: row.checkoutUrl ?? null,
     createdBy: row.createdBy,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -70,28 +72,30 @@ export function createPaymentRepository() {
   return {
     async createPayment(
       executor: SqlExecutor,
-      row: Omit<PaymentRow, "createdAt" | "updatedAt" | "providerTxId" | "status"> & {
-        status?: PaymentRow["status"];
-        providerTxId?: string | null;
+        row: Omit<PaymentRow, "createdAt" | "updatedAt" | "providerTxId" | "status" | "checkoutUrl"> & {
+          status?: PaymentRow["status"];
+          providerTxId?: string | null;
+          checkoutUrl?: string | null;
+        },
+      ): Promise<void> {
+        const dbx = executor as Database;
+        await dbx.insert(payments).values({
+          id: row.id,
+          teamId: row.teamId,
+          txRef: row.txRef,
+          kind: row.kind,
+          amountCents: row.amountCents,
+          currency: row.currency,
+          planId: row.planId,
+          seats: row.seats,
+          quote: row.quote,
+          status: row.status ?? "pending",
+          providerTxId: row.providerTxId ?? null,
+          checkoutUrl: row.checkoutUrl ?? null,
+          createdBy: row.createdBy,
+          updatedAt: sql`now()`,
+        });
       },
-    ): Promise<void> {
-      const dbx = executor as Database;
-      await dbx.insert(payments).values({
-        id: row.id,
-        teamId: row.teamId,
-        txRef: row.txRef,
-        kind: row.kind,
-        amountCents: row.amountCents,
-        currency: row.currency,
-        planId: row.planId,
-        seats: row.seats,
-        quote: row.quote,
-        status: row.status ?? "pending",
-        providerTxId: row.providerTxId ?? null,
-        createdBy: row.createdBy,
-        updatedAt: sql`now()`,
-      });
-    },
 
     async markPaymentFailed(executor: SqlExecutor, txRef: string): Promise<void> {
       const dbx = executor as Database;
@@ -99,6 +103,155 @@ export function createPaymentRepository() {
         .update(payments)
         .set({ status: "failed", updatedAt: sql`now()` })
         .where(and(eq(payments.txRef, txRef), eq(payments.status, "pending")));
+    },
+
+    async insertRenewalPaymentIfMissing(
+      executor: SqlExecutor,
+      row: Omit<PaymentRow, "createdAt" | "updatedAt" | "providerTxId" | "status" | "checkoutUrl">,
+    ): Promise<boolean> {
+      const dbx = executor as Database;
+      try {
+        await dbx.insert(payments).values({
+          id: row.id,
+          teamId: row.teamId,
+          txRef: row.txRef,
+          kind: "renewal",
+          amountCents: row.amountCents,
+          currency: row.currency,
+          planId: row.planId,
+          seats: row.seats,
+          quote: row.quote,
+          status: "pending",
+          providerTxId: null,
+          checkoutUrl: null,
+          createdBy: row.createdBy,
+          updatedAt: sql`now()`,
+        });
+        return true;
+      } catch (error) {
+        if (isUniqueViolation(error)) return false;
+        throw error;
+      }
+    },
+
+    async markPaymentSucceeded(
+      executor: SqlExecutor,
+      txRef: string,
+      providerTxId: string,
+    ): Promise<boolean> {
+      const dbx = executor as Database;
+      const rows = await dbx
+        .update(payments)
+        .set({ status: "succeeded", providerTxId, updatedAt: sql`now()` })
+        .where(and(eq(payments.txRef, txRef), inArray(payments.status, ["pending", "expired"])))
+        .returning({ id: payments.id });
+      return rows.length > 0;
+    },
+
+    async markPaymentFailedForVerification(
+      executor: SqlExecutor,
+      txRef: string,
+      providerTxId: string,
+    ): Promise<boolean> {
+      const dbx = executor as Database;
+      const rows = await dbx
+        .update(payments)
+        .set({ status: "failed", providerTxId, updatedAt: sql`now()` })
+        .where(and(eq(payments.txRef, txRef), inArray(payments.status, ["pending", "expired"])))
+        .returning({ id: payments.id });
+      return rows.length > 0;
+    },
+
+    async updatePaymentQuote(executor: SqlExecutor, txRef: string, quote: unknown): Promise<void> {
+      const dbx = executor as Database;
+      await dbx
+        .update(payments)
+        .set({ quote, updatedAt: sql`now()` })
+        .where(eq(payments.txRef, txRef));
+    },
+
+    async setCheckoutUrl(teamId: string, paymentId: string, checkoutUrl: string): Promise<boolean> {
+      const shard = getShardFor(teamId);
+      const rows = await shard
+        .update(payments)
+        .set({ checkoutUrl, updatedAt: sql`now()` })
+        .where(
+          and(
+            eq(payments.id, paymentId),
+            eq(payments.teamId, teamId),
+            eq(payments.kind, "renewal"),
+            eq(payments.status, "pending"),
+            isNull(payments.checkoutUrl),
+          ),
+        )
+        .returning({ id: payments.id });
+      return rows.length > 0;
+    },
+
+    async getPaymentById(teamId: string, paymentId: string): Promise<PaymentRow | undefined> {
+      const shard = getShardFor(teamId);
+      const rows = await shard
+        .select()
+        .from(payments)
+        .where(and(eq(payments.teamId, teamId), eq(payments.id, paymentId)))
+        .limit(1);
+      const row = rows[0];
+      return row === undefined ? undefined : toPayment(row);
+    },
+
+    async getLatestRenewalPayment(teamId: string): Promise<PaymentRow | undefined> {
+      const shard = getShardFor(teamId);
+      const rows = await shard
+        .select()
+        .from(payments)
+        .where(and(eq(payments.teamId, teamId), eq(payments.kind, "renewal")))
+        .orderBy(desc(payments.createdAt))
+        .limit(1);
+      const row = rows[0];
+      return row === undefined ? undefined : toPayment(row);
+    },
+
+    async listPendingRenewals(before: Date, limit: number): Promise<PaymentRow[]> {
+      const rows: PaymentRow[] = [];
+      for (const shard of getAllShards()) {
+        const found = await shard
+          .select()
+          .from(payments)
+          .where(
+            and(
+              eq(payments.kind, "renewal"),
+              eq(payments.status, "pending"),
+              lte(payments.updatedAt, before),
+            ),
+          )
+          .orderBy(payments.updatedAt)
+          .limit(limit);
+        rows.push(...found.map(toPayment));
+        if (rows.length >= limit) break;
+      }
+      return rows.slice(0, limit);
+    },
+
+    async listRenewalsNeedingCheckout(before: Date, limit: number): Promise<PaymentRow[]> {
+      const rows: PaymentRow[] = [];
+      for (const shard of getAllShards()) {
+        const found = await shard
+          .select()
+          .from(payments)
+          .where(
+            and(
+              eq(payments.kind, "renewal"),
+              eq(payments.status, "pending"),
+              isNull(payments.checkoutUrl),
+              lte(payments.updatedAt, before),
+            ),
+          )
+          .orderBy(payments.updatedAt)
+          .limit(limit);
+        rows.push(...found.map(toPayment));
+        if (rows.length >= limit) break;
+      }
+      return rows.slice(0, limit);
     },
 
     async getLatestPayment(teamId: string): Promise<PaymentRow | undefined> {
@@ -121,6 +274,8 @@ export function createPaymentRepository() {
     },
   };
 }
+
+export type PaymentRepository = ReturnType<typeof createPaymentRepository>;
 
 export function createWebhookRepository() {
   return {

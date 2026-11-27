@@ -1,4 +1,5 @@
 ﻿import type { SqlExecutor } from "../../db/types.js";
+import type { Role } from "../teams/types.js";
 import type { PlanId } from "./proration.js";
 
 export type SubscriptionStatus = "none" | "active" | "past_due" | "restricted";
@@ -29,6 +30,8 @@ export interface SubscriptionRow {
   status: SubscriptionStatus;
   pendingPlanId: PlanId | null;
   pendingSeats: number | null;
+  graceEndsAt: Date | null;
+  lastNotice: number;
   updatedAt: Date;
 }
 
@@ -57,7 +60,11 @@ export interface BillingStatus {
   periodEnd: string | null;
   pendingPlanId: PlanId | null;
   pendingSeats: number | null;
+  graceEndsAt: string | null;
+  lastNotice: number;
   monthlyTotalCents: number;
+  amountDueCents: number | null;
+  renewalCheckoutUrl: string | null;
   latestPaymentStatus: "pending" | "succeeded" | "failed" | "expired" | null;
 }
 
@@ -75,6 +82,9 @@ export interface BillingRepository {
   ): Promise<LedgerEntryRow>;
   listLedgerEntries(teamId: string): Promise<LedgerEntryRow[]>;
   countSeatsUsed(teamId: string): Promise<number>;
+  getTeamOwnerId(teamId: string, executor?: SqlExecutor): Promise<string | undefined>;
+  getOwnerEmail(userId: string): Promise<string | undefined>;
+  listSubscriptionsForMaintenance(now: Date, limit: number): Promise<SubscriptionRow[]>;
 }
 
 export interface QuoteRequest {
@@ -103,7 +113,13 @@ export interface ScheduleChangeResult {
 
 export interface BillingService {
   getPlans(): Promise<PlanRow[]>;
-  getStatus(teamId: string): Promise<BillingStatus>;
+  getStatus(teamId: string, viewerRole?: Role): Promise<BillingStatus>;
+  assertTeamWritable(teamId: string): Promise<void>;
+  createRenewalCheckout(
+    teamId: string,
+    paymentId: string,
+    email: string,
+  ): Promise<CheckoutResult>;
   quoteChange(teamId: string, input: QuoteRequest): Promise<import("./proration.js").QuoteResult>;
   assertSeatAvailable(teamId: string): Promise<void>;
   checkout(

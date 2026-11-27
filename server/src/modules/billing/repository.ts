@@ -1,10 +1,15 @@
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
 import type { Database } from "../../db/client.js";
-import { plans } from "../../db/schema/global.js";
-import { ledgerEntries, memberships, subscriptions } from "../../db/schema/shard.js";
+import { plans, users } from "../../db/schema/global.js";
+import {
+  ledgerEntries,
+  memberships,
+  subscriptions,
+  teams,
+} from "../../db/schema/shard.js";
 import { invites } from "../../db/schema/global.js";
-import { getShardFor } from "../../db/shard.js";
+import { getAllShards, getShardFor } from "../../db/shard.js";
 import type { SqlExecutor } from "../../db/types.js";
 import type {
   BillingRepository,
@@ -36,6 +41,8 @@ function toSubscription(row: typeof subscriptions.$inferSelect): SubscriptionRow
     status: row.status as SubscriptionStatus,
     pendingPlanId: (row.pendingPlanId as PlanId | null) ?? null,
     pendingSeats: row.pendingSeats,
+    graceEndsAt: row.graceEndsAt,
+    lastNotice: row.lastNotice,
     updatedAt: row.updatedAt,
   };
 }
@@ -94,6 +101,8 @@ export function createBillingRepository(db: Database): BillingRepository {
           status: input.status,
           pendingPlanId: input.pendingPlanId,
           pendingSeats: input.pendingSeats,
+          graceEndsAt: input.graceEndsAt,
+          lastNotice: input.lastNotice,
           updatedAt: sql`now()`,
         })
         .onConflictDoUpdate({
@@ -106,6 +115,8 @@ export function createBillingRepository(db: Database): BillingRepository {
             status: input.status,
             pendingPlanId: input.pendingPlanId,
             pendingSeats: input.pendingSeats,
+            graceEndsAt: input.graceEndsAt,
+            lastNotice: input.lastNotice,
             updatedAt: sql`now()`,
           },
         });
@@ -167,6 +178,45 @@ export function createBillingRepository(db: Database): BillingRepository {
         );
       const inviteCount = inviteRows[0]?.count ?? 0;
       return memberCount + inviteCount;
+    },
+
+    async getTeamOwnerId(teamId, executor) {
+      const shard = executor ?? getShardFor(teamId);
+      const rows = await (shard as Database)
+        .select({ ownerId: teams.ownerId })
+        .from(teams)
+        .where(eq(teams.id, teamId))
+        .limit(1);
+      return rows[0]?.ownerId;
+    },
+
+    async getOwnerEmail(userId) {
+      const rows = await db
+        .select({ email: users.email })
+        .from(users)
+        .where(eq(users.id, userId))
+        .limit(1);
+      return rows[0]?.email;
+    },
+
+    async listSubscriptionsForMaintenance(now, limit) {
+      const rows: ReturnType<typeof toSubscription>[] = [];
+      for (const shard of getAllShards()) {
+        const found = await shard
+          .select()
+          .from(subscriptions)
+          .where(
+            and(
+              inArray(subscriptions.status, ["active", "past_due"]),
+              or(lte(subscriptions.periodEnd, now), lte(subscriptions.graceEndsAt, now)),
+            ),
+          )
+          .orderBy(subscriptions.periodEnd)
+          .limit(limit);
+        rows.push(...found.map(toSubscription));
+        if (rows.length >= limit) break;
+      }
+      return rows.slice(0, limit);
     },
   };
 }
