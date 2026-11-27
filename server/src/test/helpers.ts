@@ -165,6 +165,9 @@ export const unusedTeamsService: TeamsService = {
     return [];
   },
   async revokeInvite() {},
+  async resolveInviteTeamId() {
+    throw new Error("unused in this test");
+  },
   async acceptInvite() {
     throw new Error("unused in this test");
   },
@@ -181,6 +184,10 @@ export const unusedBillingService: BillingService = {
     throw new Error("unused in this test");
   },
   async assertSeatAvailable() {},
+  async assertTeamWritable() {},
+  async createRenewalCheckout() {
+    throw new Error("unused in this test");
+  },
   async checkout() {
     throw new Error("unused in this test");
   },

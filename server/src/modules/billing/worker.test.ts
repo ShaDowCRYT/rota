@@ -8,7 +8,7 @@ import { configureShards } from "../../db/shard.js";
 import { webhookEvents } from "../../db/schema/shard.js";
 import type { PaymentProvider, VerifiedTransaction } from "../../providers/payments/types.js";
 import type { PaymentRow, WebhookEventRow } from "./paymentRepository.js";
-import { FakeBillingRepository } from "../../test/fakeBilling.js";
+import { FakeBillingRepository, FakePaymentRepository } from "../../test/fakeBilling.js";
 import { unusedActivityService } from "../../test/helpers.js";
 
 const now = new Date("2026-01-01T00:00:00.000Z");
@@ -26,6 +26,7 @@ function makePayment(txRef: string, teamId: string, ownerId: string): PaymentRow
     quote: { chargeCents: 2000, creditCents: 0, costCents: 2000 },
     status: "pending",
     providerTxId: null,
+    checkoutUrl: null,
     createdBy: ownerId,
     createdAt: now,
     updatedAt: now,
@@ -45,14 +46,12 @@ function makeEvent(eventKey: string, teamId: string, txRef: string, providerTxId
   };
 }
 
-class WorkerDatabase {
+class EventDatabase {
   readonly events = new Map<string, WebhookEventRow>();
-  payment: PaymentRow;
   currentEventKey: string;
 
-  constructor(event: WebhookEventRow, payment: PaymentRow) {
+  constructor(event: WebhookEventRow) {
     this.events.set(event.eventKey, event);
-    this.payment = payment;
     this.currentEventKey = event.eventKey;
   }
 
@@ -60,13 +59,9 @@ class WorkerDatabase {
     this.currentEventKey = eventKey;
   }
 
-  private eventRows(): WebhookEventRow[] {
+  private rows(): WebhookEventRow[] {
     const event = this.events.get(this.currentEventKey);
     return event === undefined ? [] : [event];
-  }
-
-  private paymentRows(): PaymentRow[] {
-    return [this.payment];
   }
 
   asDatabase(): unknown {
@@ -74,43 +69,20 @@ class WorkerDatabase {
       select: () => ({
         from: (table: unknown) => ({
           where: () => ({
-            limit: async () => (table === webhookEvents ? this.eventRows() : this.paymentRows()),
+            limit: async () => (table === webhookEvents ? this.rows() : []),
           }),
         }),
       }),
       update: (table: unknown) => ({
-        set: (values: Record<string, unknown>) => {
-          if (table === webhookEvents) {
-            return {
-              where: async () => {
-                for (const event of this.events.values()) {
-                  if ("attempts" in values) event.attempts += 1;
-                  if ("processedAt" in values) event.processedAt = now;
-                }
-              },
-            };
-          }
-
-          let claimed = false;
-          const apply = async () => {
-            if (typeof values.status === "string") {
-              claimed = this.payment.status !== "succeeded" && this.payment.status !== "failed";
-              this.payment.status = values.status as PaymentRow["status"];
+        set: (values: Record<string, unknown>) => ({
+          where: async () => {
+            if (table !== webhookEvents) return;
+            for (const event of this.events.values()) {
+              if ("attempts" in values) event.attempts += 1;
+              if ("processedAt" in values) event.processedAt = now;
             }
-            if ("providerTxId" in values && typeof values.providerTxId === "string") {
-              this.payment.providerTxId = values.providerTxId;
-            }
-          };
-          const pending = apply();
-          const whereResult = {
-            then: pending.then.bind(pending),
-            returning: async () => {
-              await pending;
-              return claimed ? [{ id: this.payment.id }] : [];
-            },
-          };
-          return { where: () => whereResult };
-        },
+          },
+        }),
       }),
     };
   }
@@ -130,6 +102,13 @@ function providerFor(txRef: string, providerTxId: string, options: ProviderOptio
     currency: "USD",
   };
   let failuresLeft = options.failuresBeforeSuccess ?? 0;
+  const verify = async (): Promise<VerifiedTransaction> => {
+    if (failuresLeft > 0) {
+      failuresLeft -= 1;
+      throw new Error("provider temporary");
+    }
+    return verified;
+  };
   return {
     verifyWebhookAuth() {
       return false;
@@ -137,13 +116,8 @@ function providerFor(txRef: string, providerTxId: string, options: ProviderOptio
     async createCheckout() {
       throw new Error("unused");
     },
-    async verifyTransaction() {
-      if (failuresLeft > 0) {
-        failuresLeft -= 1;
-        throw new Error("provider temporary");
-      }
-      return verified;
-    },
+    verifyTransaction: verify,
+    verifyByReference: verify,
     parseWebhook() {
       return undefined;
     },
@@ -153,14 +127,19 @@ function providerFor(txRef: string, providerTxId: string, options: ProviderOptio
   };
 }
 
-function workerWith(database: WorkerDatabase, provider: PaymentProvider, repository: FakeBillingRepository) {
+function workerWith(
+  database: EventDatabase,
+  provider: PaymentProvider,
+  repository: FakeBillingRepository,
+  paymentRepository: FakePaymentRepository,
+) {
   configureShards([database.asDatabase() as never]);
   return createBillingWebhookWorker({
     provider,
     repository,
+    paymentRepository,
     transactions: (_teamId, work) => work(database.asDatabase() as never),
     activity: unusedActivityService,
-    currency: "USD",
     now: () => now,
   });
 }
@@ -179,10 +158,12 @@ describe("billing webhook worker", () => {
     const firstKey = `charge.completed:${providerTxId}:successful:first`;
     const secondKey = `charge.completed:${providerTxId}:successful:second`;
     const payment = makePayment(txRef, teamId, ownerId);
-    const database = new WorkerDatabase(makeEvent(firstKey, teamId, txRef, providerTxId), payment);
+    const database = new EventDatabase(makeEvent(firstKey, teamId, txRef, providerTxId));
     database.events.set(secondKey, makeEvent(secondKey, teamId, txRef, providerTxId));
     const repository = new FakeBillingRepository();
-    const worker = workerWith(database, providerFor(txRef, providerTxId), repository);
+    const paymentRepository = new FakePaymentRepository();
+    paymentRepository.payments.push(payment);
+    const worker = workerWith(database, providerFor(txRef, providerTxId), repository, paymentRepository);
 
     database.useEvent(firstKey);
     await worker(job(firstKey, teamId, txRef));
@@ -202,12 +183,15 @@ describe("billing webhook worker", () => {
     const txRef = `rota.${teamId}.${paymentId}`;
     const eventKey = `charge.completed:${providerTxId}:successful`;
     const payment = makePayment(txRef, teamId, ownerId);
-    const database = new WorkerDatabase(makeEvent(eventKey, teamId, txRef, providerTxId), payment);
+    const database = new EventDatabase(makeEvent(eventKey, teamId, txRef, providerTxId));
     const repository = new FakeBillingRepository();
+    const paymentRepository = new FakePaymentRepository();
+    paymentRepository.payments.push(payment);
     const worker = workerWith(
       database,
       providerFor(txRef, providerTxId, { failuresBeforeSuccess: 1 }),
       repository,
+      paymentRepository,
     );
 
     await expect(worker(job(eventKey, teamId, txRef))).rejects.toThrow("provider temporary");
@@ -219,7 +203,7 @@ describe("billing webhook worker", () => {
     expect(payment.status).toBe("succeeded");
   });
 
-  it("does not write ledger rows when the provider amount differs", async () => {
+  it("does not write ledger rows when the provider amount is lower", async () => {
     const teamId = randomUUID();
     const ownerId = randomUUID();
     const paymentId = randomUUID();
@@ -227,8 +211,10 @@ describe("billing webhook worker", () => {
     const txRef = `rota.${teamId}.${paymentId}`;
     const eventKey = `charge.completed:${providerTxId}:successful`;
     const payment = makePayment(txRef, teamId, ownerId);
-    const database = new WorkerDatabase(makeEvent(eventKey, teamId, txRef, providerTxId), payment);
+    const database = new EventDatabase(makeEvent(eventKey, teamId, txRef, providerTxId));
     const repository = new FakeBillingRepository();
+    const paymentRepository = new FakePaymentRepository();
+    paymentRepository.payments.push(payment);
     const worker = workerWith(
       database,
       providerFor(txRef, providerTxId, {
@@ -241,6 +227,7 @@ describe("billing webhook worker", () => {
         },
       }),
       repository,
+      paymentRepository,
     );
 
     await worker(job(eventKey, teamId, txRef));
@@ -258,8 +245,10 @@ describe("billing webhook worker", () => {
     const txRef = `rota.${teamId}.${paymentId}`;
     const eventKey = `charge.completed:${providerTxId}:successful`;
     const payment = makePayment(txRef, teamId, ownerId);
-    const database = new WorkerDatabase(makeEvent(eventKey, teamId, txRef, providerTxId), payment);
+    const database = new EventDatabase(makeEvent(eventKey, teamId, txRef, providerTxId));
     const repository = new FakeBillingRepository();
+    const paymentRepository = new FakePaymentRepository();
+    paymentRepository.payments.push(payment);
     const worker = workerWith(
       database,
       providerFor(txRef, providerTxId, {
@@ -272,6 +261,7 @@ describe("billing webhook worker", () => {
         },
       }),
       repository,
+      paymentRepository,
     );
 
     await worker(job(eventKey, teamId, txRef));

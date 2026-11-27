@@ -21,6 +21,8 @@ export class FakeBillingRepository implements BillingRepository {
   }));
   readonly subscriptions = new Map<string, SubscriptionRow>();
   readonly ledger: LedgerEntryRow[] = [];
+  readonly ownerIdsByTeam = new Map<string, string>();
+  readonly emailsByUser = new Map<string, string>();
   seatsUsedByTeam = new Map<string, number>();
 
   async listPlans(): Promise<PlanRow[]> {
@@ -62,22 +64,128 @@ export class FakeBillingRepository implements BillingRepository {
   async countSeatsUsed(teamId: string): Promise<number> {
     return this.seatsUsedByTeam.get(teamId) ?? 0;
   }
+
+  async getTeamOwnerId(teamId: string): Promise<string | undefined> {
+    return this.ownerIdsByTeam.get(teamId);
+  }
+
+  async getOwnerEmail(userId: string): Promise<string | undefined> {
+    return this.emailsByUser.get(userId);
+  }
+
+  async listSubscriptionsForMaintenance(now: Date, limit: number): Promise<SubscriptionRow[]> {
+    return [...this.subscriptions.values()]
+      .filter((row) => (row.status === "active" || row.status === "past_due") && (row.periodEnd.getTime() <= now.getTime() || (row.graceEndsAt?.getTime() ?? Infinity) <= now.getTime()))
+      .sort((a, b) => a.periodEnd.getTime() - b.periodEnd.getTime())
+      .slice(0, limit);
+  }
 }
 
 export class FakePaymentRepository {
   readonly payments: PaymentRow[] = [];
-  async createPayment(_executor: SqlExecutor, row: Omit<PaymentRow, "createdAt" | "updatedAt" | "providerTxId" | "status"> & { status?: PaymentRow["status"]; providerTxId?: string | null }): Promise<void> {
-    this.payments.push({ ...row, status: row.status ?? "pending", providerTxId: row.providerTxId ?? null, createdAt: new Date(), updatedAt: new Date() } as PaymentRow);
+
+  private find(txRef: string): PaymentRow | undefined {
+    return this.payments.find((payment) => payment.txRef === txRef);
   }
+
+  async createPayment(
+    _executor: SqlExecutor,
+    row: Omit<PaymentRow, "createdAt" | "updatedAt" | "providerTxId" | "status" | "checkoutUrl"> & {
+      status?: PaymentRow["status"];
+      providerTxId?: string | null;
+      checkoutUrl?: string | null;
+    },
+  ): Promise<void> {
+    this.payments.push({
+      ...row,
+      status: row.status ?? "pending",
+      providerTxId: row.providerTxId ?? null,
+      checkoutUrl: row.checkoutUrl ?? null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  }
+
+  async insertRenewalPaymentIfMissing(
+    _executor: SqlExecutor,
+    row: Omit<PaymentRow, "createdAt" | "updatedAt" | "providerTxId" | "status" | "checkoutUrl">,
+  ): Promise<boolean> {
+    if (this.find(row.txRef) !== undefined) return false;
+    await this.createPayment(_executor, { ...row, kind: "renewal" });
+    return true;
+  }
+
   async markPaymentFailed(_executor: SqlExecutor, txRef: string): Promise<void> {
-    const p = this.payments.find((x) => x.txRef === txRef && x.status === "pending");
-    if (p) p.status = "failed";
+    const payment = this.find(txRef);
+    if (payment?.status === "pending") payment.status = "failed";
   }
+
+  async markPaymentSucceeded(
+    _executor: SqlExecutor,
+    txRef: string,
+    providerTxId: string,
+  ): Promise<boolean> {
+    const payment = this.find(txRef);
+    if (payment === undefined || (payment.status !== "pending" && payment.status !== "expired")) {
+      return false;
+    }
+    payment.status = "succeeded";
+    payment.providerTxId = providerTxId;
+    return true;
+  }
+
+  async markPaymentFailedForVerification(
+    _executor: SqlExecutor,
+    txRef: string,
+    providerTxId: string,
+  ): Promise<boolean> {
+    const payment = this.find(txRef);
+    if (payment === undefined || (payment.status !== "pending" && payment.status !== "expired")) {
+      return false;
+    }
+    payment.status = "failed";
+    payment.providerTxId = providerTxId;
+    return true;
+  }
+
+  async updatePaymentQuote(_executor: SqlExecutor, txRef: string, quote: unknown): Promise<void> {
+    const payment = this.find(txRef);
+    if (payment !== undefined) payment.quote = quote;
+  }
+
+  async setCheckoutUrl(teamId: string, paymentId: string, checkoutUrl: string): Promise<boolean> {
+    const payment = this.payments.find((row) => row.teamId === teamId && row.id === paymentId && row.checkoutUrl === null);
+    if (payment === undefined) return false;
+    payment.checkoutUrl = checkoutUrl;
+    return true;
+  }
+
   async getLatestPayment(teamId: string): Promise<PaymentRow | undefined> {
-    return [...this.payments].reverse().find((p) => p.teamId === teamId);
+    return [...this.payments].reverse().find((payment) => payment.teamId === teamId);
   }
+
+  async getLatestRenewalPayment(teamId: string): Promise<PaymentRow | undefined> {
+    return [...this.payments].reverse().find((payment) => payment.teamId === teamId && payment.kind === "renewal");
+  }
+
+  async getPaymentById(teamId: string, paymentId: string): Promise<PaymentRow | undefined> {
+    return this.payments.find((payment) => payment.teamId === teamId && payment.id === paymentId);
+  }
+
   async getPaymentByTxRef(_executor: SqlExecutor, txRef: string): Promise<PaymentRow | undefined> {
-    return this.payments.find((p) => p.txRef === txRef);
+    return this.find(txRef);
+  }
+
+  async listPendingRenewals(before: Date, limit: number): Promise<PaymentRow[]> {
+    return this.payments
+      .filter((payment) => payment.kind === "renewal" && payment.status === "pending" && payment.updatedAt.getTime() <= before.getTime())
+      .slice(0, limit);
+  }
+
+  async listRenewalsNeedingCheckout(before: Date, limit: number): Promise<PaymentRow[]> {
+    return this.payments
+      .filter((payment) => payment.kind === "renewal" && payment.status === "pending" && payment.checkoutUrl === null && payment.updatedAt.getTime() <= before.getTime())
+      .slice(0, limit);
   }
 }
 

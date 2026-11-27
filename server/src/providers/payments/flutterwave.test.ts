@@ -46,6 +46,16 @@ describe("flutterwave adapter", () => {
     const verified = await provider.verifyTransaction("123");
     expect(verified).toMatchObject({ txRef: "rota.t.p", status: "successful", amountCents: 2000, currency: "USD" });
   });
+
+  it("verifies a transaction by encoded tx_ref", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ status: "success", data: { id: 123, tx_ref: "rota.team/payment", status: "successful", amount: "50.00", currency: "USD" } }), { status: 200 })) as unknown as typeof fetch;
+    const provider = createFlutterwaveProvider({ secretKey: "sk", secretHash: "sh", fetchImpl, baseUrl: "https://api.flutterwave.com/v3" });
+
+    const verified = await provider.verifyByReference("rota.team/payment");
+
+    expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe("https://api.flutterwave.com/v3/transactions/verify_by_reference?tx_ref=rota.team%2Fpayment");
+    expect(verified).toMatchObject({ txRef: "rota.team/payment", amountCents: 5000, currency: "USD" });
+  });
 });
 
 describe("flutterwave webhook parser", () => {
