@@ -68,11 +68,22 @@ The redirect never decides success. Only the verified webhook job can mark a pay
 
 1. `billingWebhookRateLimit` runs first. It fails open only when Redis is unavailable (503); 429 still blocks. All other rate limits fail closed (decision 0013).
 2. `verifyWebhookAuth` checks `verif-hash` before the body is parsed or stored. Bad hash returns 401.
-3. Only `charge.completed` events with a valid `rota.<teamId>.<paymentId>` `tx_ref` are stored. Other valid webhooks return `{ "status": "ignored" }` with 200.
+3. The Flutterwave adapter accepts both modern and legacy charge payloads. Events with a valid `rota.<teamId>.<paymentId>` `tx_ref` are stored. Other valid webhooks return `{ "status": "ignored" }` with 200 and log a safe shape diagnostic.
 4. `webhook_events.event_key` is the primary key. A duplicate returns `{ "status": "duplicate" }`; it is re-enqueued only when `processed_at` is still null.
 5. The job calls Flutterwave verify, compares `tx_ref`, integer cents, and currency, then claims the payment with a conditional update. Mismatches mark the payment failed with no ledger rows.
 6. Provider failures throw so BullMQ retries with exponential backoff (8 attempts, 5 second base delay, failed list retained).
 7. On startup, `reenqueueUnprocessedWebhookEvents` queues unprocessed events from all shards, oldest first, up to 100 by default.
+
+### Webhook payload shapes
+
+Only `server/src/providers/payments/flutterwave.ts` reads Flutterwave field names.
+
+- Modern shape: `event: "charge.completed"`, `data.id`, `data.tx_ref`, optional `data.status`.
+- Legacy flat shape: `"event.type": "CARD_TRANSACTION"` (or a similar charge type), top-level `id`, `txRef`, optional `status`.
+- Both shapes normalize to provider transaction ID, tx ref, and event name. Legacy charge events are treated like `charge.completed`.
+- `event_key` is `charge.completed:<providerTxId>:<status>`, with `unknown` when the body has no status. The body status is only a dedupe label.
+- The webhook body is never trusted for money. The worker verifies with `GET /v3/transactions/{id}/verify` and compares status, integer cents, currency, and tx ref before any ledger, payment, or subscription change.
+- Ignored webhooks log only top-level field names, `data` field names, and a short event label. Body values, headers, hashes, keys, and tokens are never logged.
 
 ## Ledger and recovery
 
