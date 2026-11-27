@@ -1,4 +1,4 @@
-﻿import { and, asc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 
 import type { Database } from "../../db/client.js";
 import { plans } from "../../db/schema/global.js";
@@ -60,7 +60,7 @@ function toLedger(row: typeof ledgerEntries.$inferSelect): LedgerEntryRow {
 export function createBillingRepository(db: Database): BillingRepository {
   return {
     async listPlans() {
-      const rows = await db.select().from(plans).orderBy(asc(plans.priceCents));
+      const rows = await db.select().from(plans).orderBy(sql`${plans.priceCents} asc`);
       return rows.map(toPlan);
     },
 
@@ -142,7 +142,7 @@ export function createBillingRepository(db: Database): BillingRepository {
         .select()
         .from(ledgerEntries)
         .where(eq(ledgerEntries.teamId, teamId))
-        .orderBy(asc(ledgerEntries.createdAt), asc(ledgerEntries.id));
+        .orderBy(sql`${ledgerEntries.createdAt} asc`, sql`${ledgerEntries.id} asc`);
       return rows.map(toLedger);
     },
 

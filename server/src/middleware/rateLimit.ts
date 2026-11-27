@@ -217,3 +217,33 @@ export function billingQuoteRateLimit(limiter: RateLimiter): RequestHandler {
     key: (req) => `rl:billing:quote:user:${req.user?.id ?? "unknown"}`,
   });
 }
+
+export function billingCheckoutRateLimit(limiter: RateLimiter): RequestHandler {
+  return rateLimit(limiter, {
+    limit: 10,
+    windowSeconds: 3600,
+    key: (req) => `rl:billing:checkout:user:${req.user?.id ?? "unknown"}`,
+  });
+}
+
+export function billingWebhookRateLimit(limiter: RateLimiter): RequestHandler {
+  return async (req, _res, next) => {
+    try {
+      await limiter.consume(
+        `rl:billing:webhook:ip:${requestIp(req)}`,
+        600,
+        900,
+      );
+      next();
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 503) {
+        logger.warn("billing webhook rate limit check unavailable; allowing request", {
+          error: getErrorMessage(error),
+        });
+        next();
+        return;
+      }
+      next(error);
+    }
+  };
+}

@@ -58,6 +58,7 @@ export interface BillingStatus {
   pendingPlanId: PlanId | null;
   pendingSeats: number | null;
   monthlyTotalCents: number;
+  latestPaymentStatus: "pending" | "succeeded" | "failed" | "expired" | null;
 }
 
 export interface BillingRepository {
@@ -81,9 +82,41 @@ export interface QuoteRequest {
   newSeats: number;
 }
 
+export interface CheckoutRequest {
+  planId: PlanId;
+  seats: number;
+}
+
+export interface CheckoutResult {
+  checkoutUrl: string;
+  paymentId: string;
+  amountCents: number;
+  currency: string;
+}
+
+export interface ScheduleChangeResult {
+  status: "scheduled";
+  pendingPlanId: PlanId;
+  pendingSeats: number;
+  effectiveAt: string;
+}
+
 export interface BillingService {
   getPlans(): Promise<PlanRow[]>;
   getStatus(teamId: string): Promise<BillingStatus>;
   quoteChange(teamId: string, input: QuoteRequest): Promise<import("./proration.js").QuoteResult>;
   assertSeatAvailable(teamId: string): Promise<void>;
+  checkout(
+    teamId: string,
+    userId: string,
+    email: string,
+    idempotencyKey: string,
+    input: CheckoutRequest,
+  ): Promise<CheckoutResult>;
+  scheduleChange(
+    teamId: string,
+    userId: string,
+    idempotencyKey: string,
+    input: CheckoutRequest,
+  ): Promise<ScheduleChangeResult>;
 }

@@ -2,7 +2,7 @@ import * as Sentry from "@sentry/node";
 import { createRemoteJWKSet } from "jose";
 
 import { createApp } from "./app.js";
-import { env } from "./config/env.js";
+import { env, paymentsEnabled } from "./config/env.js";
 import { createDb } from "./db/client.js";
 import { checkDatabase, closePool, getPool } from "./db/pool.js";
 import { configureShards } from "./db/shard.js";
@@ -32,7 +32,14 @@ import { createTeamsService } from "./modules/teams/service.js";
 import { configureSeatLimitService } from "./modules/teams/seats.js";
 import { createBillingRepository } from "./modules/billing/repository.js";
 import { createBillingService } from "./modules/billing/service.js";
+import { createIdempotencyRepository } from "./modules/billing/idempotencyRepository.js";
+import { createPaymentRepository } from "./modules/billing/paymentRepository.js";
 import { createDevEmailSender } from "./providers/email.js";
+import { createFlutterwaveProvider } from "./providers/payments/flutterwave.js";
+import { createBillingQueue, createBillingWorker } from "./jobs/billingQueue.js";
+import { createBillingQueueAdapter } from "./jobs/billingQueueAdapter.js";
+import { createBillingWebhookWorker } from "./modules/billing/worker.js";
+import { reenqueueUnprocessedWebhookEvents } from "./modules/billing/recovery.js";
 
 initSentry({ dsn: env.SENTRY_DSN, environment: env.NODE_ENV });
 
@@ -57,8 +64,28 @@ const teamsService = createTeamsService({
   inviteTtlDays: env.INVITE_TTL_DAYS,
 });
 
+const paymentProvider =
+  paymentsEnabled && env.FLUTTERWAVE_SECRET_KEY && env.FLUTTERWAVE_SECRET_HASH
+    ? createFlutterwaveProvider({
+        secretKey: env.FLUTTERWAVE_SECRET_KEY,
+        secretHash: env.FLUTTERWAVE_SECRET_HASH,
+      })
+    : undefined;
+
+const billingQueueRuntime =
+  paymentsEnabled && env.REDIS_URL ? createBillingQueue({ redisUrl: env.REDIS_URL }) : undefined;
+const billingQueue = billingQueueRuntime ? createBillingQueueAdapter(billingQueueRuntime) : undefined;
+
+const activityService = createActivityService(createActivityRepository());
 const billingService = createBillingService({
   repository: createBillingRepository(database),
+  paymentRepository: createPaymentRepository(),
+  idempotencyRepository: createIdempotencyRepository(),
+  globalDb: database,
+  provider: paymentProvider,
+  paymentsEnabled,
+  currency: env.BILLING_CURRENCY,
+  publicApiUrl: env.PUBLIC_API_URL,
   transactions: runShardTransaction,
   now: () => new Date(),
   redis: {
@@ -66,10 +93,9 @@ const billingService = createBillingService({
     eval: (script, keys, args) =>
       redis.eval(script, keys.length, ...keys, ...args) as Promise<unknown>,
   },
+  activity: activityService,
 });
 configureSeatLimitService(billingService);
-
-const activityService = createActivityService(createActivityRepository());
 
 const shiftsService = createShiftsService({
   repository: createShiftsRepository(),
@@ -113,7 +139,28 @@ const app = createApp({
   googleJwks: createRemoteJWKSet(
     new URL("https://www.googleapis.com/oauth2/v3/certs"),
   ),
+  paymentProvider,
+  paymentsEnabled,
+  billingQueue: billingQueue ?? undefined,
 });
+
+let billingWorker: ReturnType<typeof createBillingWorker> | undefined;
+if (env.RUN_WORKER && paymentsEnabled && paymentProvider && env.REDIS_URL) {
+  billingWorker = createBillingWorker(
+    { redisUrl: env.REDIS_URL },
+    createBillingWebhookWorker({
+      provider: paymentProvider,
+      repository: createBillingRepository(database),
+      transactions: runShardTransaction,
+      activity: activityService,
+      currency: env.BILLING_CURRENCY,
+      now: () => new Date(),
+    }),
+  );
+  void reenqueueUnprocessedWebhookEvents(billingQueue!, 100).then((count) => {
+    if (count > 0) logger.info("re-enqueued unprocessed billing webhooks", { count });
+  });
+}
 
 Sentry.setupExpressErrorHandler(app);
 app.use(errorHandler);
@@ -142,6 +189,27 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
       error: getErrorMessage(error),
     });
     exitCode = 1;
+  }
+
+  if (billingWorker !== undefined) {
+    try {
+      await billingWorker.close();
+    } catch (error) {
+      logger.error("failed to close billing worker", {
+        error: getErrorMessage(error),
+      });
+      exitCode = 1;
+    }
+  }
+  if (billingQueueRuntime !== undefined) {
+    try {
+      await billingQueueRuntime.close();
+    } catch (error) {
+      logger.error("failed to close billing queue", {
+        error: getErrorMessage(error),
+      });
+      exitCode = 1;
+    }
   }
 
   try {

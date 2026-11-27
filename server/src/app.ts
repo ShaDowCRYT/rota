@@ -22,7 +22,10 @@ import type { SwapsService } from "./modules/swaps/types.js";
 import { createTeamsRouter } from "./modules/teams/routes.js";
 import type { TeamsService } from "./modules/teams/types.js";
 import { createBillingRouter } from "./modules/billing/routes.js";
+import { createBillingWebhookRouter } from "./modules/billing/webhook.js";
 import type { BillingService } from "./modules/billing/types.js";
+import type { PaymentProvider } from "./providers/payments/types.js";
+import type { BillingQueue } from "./jobs/billingQueueAdapter.js";
 
 export type DatabaseCheck = () => Promise<void>;
 export type RedisCheck = () => Promise<boolean>;
@@ -44,6 +47,9 @@ export interface AppDependencies {
   trustProxyHops: number;
   googleAudience?: string;
   googleJwks?: JWTVerifyGetKey;
+  paymentProvider?: PaymentProvider;
+  paymentsEnabled?: boolean;
+  billingQueue?: BillingQueue;
 }
 
 async function runCheck(
@@ -66,6 +72,18 @@ export function createApp(deps: AppDependencies): Express {
   if (deps.trustProxyHops > 0) {
     app.set("trust proxy", deps.trustProxyHops);
   }
+
+  if (deps.paymentProvider !== undefined && deps.billingQueue !== undefined) {
+    app.use(
+      "/webhooks/flutterwave",
+      createBillingWebhookRouter({
+        provider: deps.paymentProvider,
+        queue: deps.billingQueue,
+        limiter: deps.limiter,
+      }),
+    );
+  }
+
   app.use(express.json({ limit: "10kb" }));
 
   app.use((req, res, next) => {
@@ -137,6 +155,7 @@ export function createApp(deps: AppDependencies): Express {
       deps.billingService,
       deps.teamsService,
       deps.limiter,
+      { paymentsEnabled: deps.paymentsEnabled ?? false },
     ),
   );
   app.use(
