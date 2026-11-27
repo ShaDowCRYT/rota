@@ -204,6 +204,35 @@ async function fetchJson<T>(
   }
 }
 
+function toVerifiedTransaction(
+  response: FlutterwaveVerifyResponse,
+  fallbackId: string,
+): VerifiedTransaction {
+  const data = response?.data;
+  if (!isObject(data)) {
+    throw new HttpError(502, "Payment provider unavailable");
+  }
+  const txRef = data.tx_ref;
+  const status = data.status;
+  const amount = data.amount;
+  const currency = data.currency;
+  if (
+    typeof txRef !== "string" ||
+    typeof status !== "string" ||
+    (typeof amount !== "number" && typeof amount !== "string") ||
+    typeof currency !== "string"
+  ) {
+    throw new HttpError(502, "Payment provider unavailable");
+  }
+  return {
+    providerTxId: String(data.id ?? fallbackId),
+    txRef,
+    status,
+    amountCents: majorToCents(amount),
+    currency: currency.toUpperCase(),
+  };
+}
+
 export function createFlutterwaveProvider(config: FlutterwaveConfig): PaymentProvider {
   const baseUrl = config.baseUrl ?? "https://api.flutterwave.com/v3";
   const fetchImpl = config.fetchImpl ?? fetch;
@@ -251,29 +280,21 @@ export function createFlutterwaveProvider(config: FlutterwaveConfig): PaymentPro
         fetchImpl,
         timeoutMs,
       );
-      const data = response?.data;
-      if (!isObject(data)) {
-        throw new HttpError(502, "Payment provider unavailable");
-      }
-      const txRef = data.tx_ref;
-      const status = data.status;
-      const amount = data.amount;
-      const currency = data.currency;
-      if (
-        typeof txRef !== "string" ||
-        typeof status !== "string" ||
-        (typeof amount !== "number" && typeof amount !== "string") ||
-        typeof currency !== "string"
-      ) {
-        throw new HttpError(502, "Payment provider unavailable");
-      }
-      return {
-        providerTxId: String(data.id ?? providerTxId),
-        txRef,
-        status,
-        amountCents: majorToCents(amount),
-        currency: currency.toUpperCase(),
-      };
+      return toVerifiedTransaction(response, providerTxId);
+    },
+
+    async verifyByReference(txRef: string): Promise<VerifiedTransaction> {
+      const encoded = encodeURIComponent(txRef);
+      const response = await fetchJson<FlutterwaveVerifyResponse>(
+        `${baseUrl}/transactions/verify_by_reference?tx_ref=${encoded}`,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${config.secretKey}` },
+        },
+        fetchImpl,
+        timeoutMs,
+      );
+      return toVerifiedTransaction(response, txRef);
     },
 
     verifyWebhookAuth(headers: Record<string, string | string[] | undefined>): boolean {

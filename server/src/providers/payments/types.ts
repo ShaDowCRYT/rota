@@ -36,6 +36,7 @@ export interface IgnoredWebhookSummary {
 export interface PaymentProvider {
   createCheckout(input: CheckoutInput): Promise<CheckoutResult>;
   verifyTransaction(providerTxId: string): Promise<VerifiedTransaction>;
+  verifyByReference(txRef: string): Promise<VerifiedTransaction>;
   verifyWebhookAuth(headers: Record<string, string | string[] | undefined>): boolean;
   parseWebhook(payload: unknown): ParsedWebhook | undefined;
   describeIgnoredWebhook(payload: unknown): IgnoredWebhookSummary;
