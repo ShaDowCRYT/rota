@@ -63,9 +63,9 @@ export function createBillingWebhookWorker(deps: BillingWorkerDeps): Processor<{
       verified = await deps.provider.verifyTransaction(providerTxId);
     } catch (error) {
       logger.warn("billing webhook verification failed; will retry", {
-        eventKeyHash: eventKey.slice(0, 24),
         error: getErrorMessage(error),
       });
+
       throw error;
     }
 
@@ -98,7 +98,8 @@ export function createBillingWebhookWorker(deps: BillingWorkerDeps): Processor<{
         await markWebhookProcessed(executor, eventKey);
       });
       await deps.transactions(shardTeamId, async (executor) => { await deps.activity.record(executor, { teamId: shardTeamId, type: "billing_payment_failed", actorId: payment.createdBy, payload: { planId: payment.planId, seats: payment.seats } }); }).catch(() => undefined);
-      logger.warn("billing webhook verification mismatch", { eventKeyHash: eventKey.slice(0, 24) });
+      logger.warn("billing webhook verification mismatch");
+
       return;
     }
 

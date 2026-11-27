@@ -144,6 +144,12 @@ function providerFor(txRef: string, providerTxId: string, options: ProviderOptio
       }
       return verified;
     },
+    parseWebhook() {
+      return undefined;
+    },
+    describeIgnoredWebhook() {
+      return { topLevelKeys: [], dataKeys: [] };
+    },
   };
 }
 

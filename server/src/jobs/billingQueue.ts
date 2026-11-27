@@ -75,13 +75,12 @@ export function createBillingWorker(
     maxStalledCount: 1,
   });
 
-  worker.on("failed", (job, error) => {
+  worker.on("failed", (_job, error) => {
     logger.warn("billing webhook job failed", {
-      jobId: job?.id,
-      eventKeyHash: job?.data?.eventKey ? job.data.eventKey.slice(0, 32) : undefined,
       error: getErrorMessage(error),
     });
   });
+
 
   worker.on("error", (error) => {
     logger.error("billing worker error", { error: getErrorMessage(error) });

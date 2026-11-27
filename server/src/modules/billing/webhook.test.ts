@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Server } from "node:http";
 
 import express from "express";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createBillingWebhookRouter } from "./webhook.js";
 import { configureShards } from "../../db/shard.js";
@@ -11,6 +11,7 @@ import type { RateLimiter } from "../../middleware/rateLimit.js";
 import type { BillingQueue } from "../../jobs/billingQueueAdapter.js";
 import type { BillingWebhookJobData } from "../../jobs/billingQueue.js";
 import type { PaymentProvider } from "../../providers/payments/types.js";
+import { createFlutterwaveProvider } from "../../providers/payments/flutterwave.js";
 import { startServer } from "../../test/helpers.js";
 import type { WebhookEventRow } from "./paymentRepository.js";
 
@@ -72,18 +73,7 @@ function fakeShard(options: FakeShardOptions = {}) {
 }
 
 function fakeProvider(): PaymentProvider {
-  return {
-    verifyWebhookAuth(headers) {
-      const raw = headers["verif-hash"];
-      return (Array.isArray(raw) ? raw[0] : raw) === webhookHash;
-    },
-    async createCheckout() {
-      throw new Error("unused");
-    },
-    async verifyTransaction() {
-      throw new Error("unused");
-    },
-  };
+  return createFlutterwaveProvider({ secretKey: "unused", secretHash: webhookHash });
 }
 
 interface HarnessOptions extends FakeShardOptions {
@@ -144,6 +134,27 @@ function webhookBody(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function legacyWebhookBody(overrides: Record<string, unknown> = {}) {
+  const teamId = randomUUID();
+  const paymentId = randomUUID();
+  const providerTxId = randomUUID();
+  return {
+    teamId,
+    paymentId,
+    providerTxId,
+    eventKey: `charge.completed:${providerTxId}:successful`,
+    body: JSON.stringify({
+      "event.type": "CARD_TRANSACTION",
+      id: providerTxId,
+      txRef: `rota.${teamId}.${paymentId}`,
+      status: "successful",
+      amount: "20.00",
+      currency: "USD",
+      ...overrides,
+    }),
+  };
+}
+
 async function postWebhook(baseUrl: string, body: string, hash = webhookHash) {
   return fetch(`${baseUrl}/webhooks/flutterwave`, {
     method: "POST",
@@ -163,6 +174,7 @@ describe("billing webhook route", () => {
   }
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     const running = server;
     server = undefined;
     if (running === undefined) return;
@@ -203,6 +215,54 @@ describe("billing webhook route", () => {
     expect(await response.json()).toEqual({ status: "ignored" });
     expect(started.inserted).toHaveLength(0);
     expect(started.jobs).toHaveLength(0);
+  });
+
+  it("logs ignored event shape without body values or headers", async () => {
+    const started = await start();
+    const marker = "do-not-log-this-body-value";
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+
+    const response = await postWebhook(
+      started.baseUrl,
+      JSON.stringify({
+        event: "transfer.completed",
+        data: { note: marker, id: "provider-id-value", tx_ref: "txref-value" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const logged = writeSpy.mock.calls.map((call) => String(call[0])).join("");
+    expect(logged).toContain("billing webhook ignored");
+    expect(logged).toContain("note");
+    expect(logged).toContain("transfer.completed");
+    expect(logged).not.toContain(marker);
+    expect(logged).not.toContain("provider-id-value");
+    expect(logged).not.toContain("txref-value");
+    expect(logged).not.toContain(webhookHash);
+  });
+
+  it("stores a legacy flat charge event", async () => {
+    const started = await start();
+    const message = legacyWebhookBody();
+
+    const response = await postWebhook(started.baseUrl, message.body);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "queued" });
+    expect(started.inserted).toHaveLength(1);
+    expect(started.jobs).toEqual([
+      { eventKey: message.eventKey, teamId: message.teamId, txRef: `rota.${message.teamId}.${message.paymentId}` },
+    ]);
+  });
+
+  it("uses unknown as the legacy dedupe status when the body has none", async () => {
+    const started = await start();
+    const message = legacyWebhookBody({ status: undefined });
+
+    const response = await postWebhook(started.baseUrl, message.body);
+
+    expect(response.status).toBe(200);
+    expect(started.jobs[0]?.eventKey).toBe(`charge.completed:${message.providerTxId}:unknown`);
   });
 
   it("ignores a charge without a tx_ref", async () => {

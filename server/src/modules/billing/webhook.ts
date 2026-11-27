@@ -27,18 +27,26 @@ export function createBillingWebhookRouter(deps: BillingWebhookDeps): Router {
   const router = Router();
   const webhooks = createWebhookRepository();
 
+  function ignore(payload: unknown, res: express.Response): void {
+    const summary = deps.provider.describeIgnoredWebhook(payload);
+    logger.info("billing webhook ignored", {
+      topLevelKeys: summary.topLevelKeys,
+      dataKeys: summary.dataKeys,
+      ...(summary.eventName !== undefined ? { eventName: summary.eventName } : {}),
+    });
+    res.status(200).json({ status: "ignored" });
+  }
+
   router.post(
     "/",
     billingWebhookRateLimit(deps.limiter),
     express.raw({ type: "*/*", limit: "64kb" }),
     async (req, res) => {
-      // 1) Verify auth header before parsing/storing.
       if (!deps.provider.verifyWebhookAuth(req.headers as Record<string, string | string[] | undefined>)) {
         res.status(401).json({ error: "Unauthorized" });
         return;
       }
 
-      // 2) Parse JSON after signature check.
       let payload: unknown;
       try {
         const raw = Buffer.isBuffer(req.body) ? req.body.toString("utf8") : String(req.body ?? "");
@@ -48,39 +56,24 @@ export function createBillingWebhookRouter(deps: BillingWebhookDeps): Router {
         return;
       }
 
-      const record = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : undefined;
-      const event = typeof record?.event === "string" ? record.event : undefined;
-      const data = record?.data && typeof record.data === "object" ? (record.data as Record<string, unknown>) : undefined;
-      if (event !== "charge.completed" || data === undefined) {
-        res.status(200).json({ status: "ignored" });
+      const parsed = deps.provider.parseWebhook(payload);
+      if (parsed === undefined) {
+        ignore(payload, res);
         return;
       }
 
-      const txRef = typeof data.tx_ref === "string" ? data.tx_ref : undefined;
-      const providerTxId = data.id;
-      const status = typeof data.status === "string" ? data.status : undefined;
-      const amount = data.amount;
-      const currency = typeof data.currency === "string" ? data.currency : undefined;
-      if (txRef === undefined || providerTxId === undefined || status === undefined) {
-        res.status(200).json({ status: "ignored" });
-        return;
-      }
-
-      const parsedRef = parseTxRef(txRef);
+      const parsedRef = parseTxRef(parsed.txRef);
       if (parsedRef === undefined) {
-        res.status(200).json({ status: "ignored" });
+        ignore(payload, res);
         return;
       }
 
-      const eventKey = `charge.completed:${String(providerTxId)}:${status}`;
+      const eventKey = `charge.completed:${parsed.providerTxId}:${parsed.dedupeStatus}`;
       const safePayload = {
-        event,
+        event: parsed.eventName,
         data: {
-          id: String(providerTxId),
-          tx_ref: txRef,
-          status,
-          amount: typeof amount === "number" || typeof amount === "string" ? amount : null,
-          currency: currency ?? null,
+          id: parsed.providerTxId,
+          tx_ref: parsed.txRef,
         },
       };
 
@@ -90,11 +83,11 @@ export function createBillingWebhookRouter(deps: BillingWebhookDeps): Router {
           eventKey,
           teamId: parsedRef.teamId,
           provider: "flutterwave",
-          txRef,
+          txRef: parsed.txRef,
           payload: safePayload,
         });
-      } catch (error) {
-        logger.error("webhook event store failed", { error: error instanceof Error ? error.message : String(error) });
+      } catch {
+        logger.error("webhook event store failed");
         res.status(500).json({ error: "Service unavailable" });
         return;
       }
@@ -106,15 +99,15 @@ export function createBillingWebhookRouter(deps: BillingWebhookDeps): Router {
             res.status(200).json({ status: "duplicate" });
             return;
           }
-        } catch (error) {
-          logger.error("webhook duplicate lookup failed", { error: error instanceof Error ? error.message : String(error) });
+        } catch {
+          logger.error("webhook duplicate lookup failed");
           res.status(500).json({ error: "Service unavailable" });
           return;
         }
         try {
-          await deps.queue.enqueueWebhook({ eventKey, teamId: parsedRef.teamId, txRef });
-        } catch (error) {
-          logger.error("webhook re-enqueue failed", { error: error instanceof Error ? error.message : String(error) });
+          await deps.queue.enqueueWebhook({ eventKey, teamId: parsedRef.teamId, txRef: parsed.txRef });
+        } catch {
+          logger.error("webhook re-enqueue failed");
           res.status(500).json({ error: "Service unavailable" });
           return;
         }
@@ -123,9 +116,9 @@ export function createBillingWebhookRouter(deps: BillingWebhookDeps): Router {
       }
 
       try {
-        await deps.queue.enqueueWebhook({ eventKey, teamId: parsedRef.teamId, txRef });
-      } catch (error) {
-        logger.error("webhook enqueue failed after store", { error: error instanceof Error ? error.message : String(error) });
+        await deps.queue.enqueueWebhook({ eventKey, teamId: parsedRef.teamId, txRef: parsed.txRef });
+      } catch {
+        logger.error("webhook enqueue failed after store");
         res.status(500).json({ error: "Service unavailable" });
         return;
       }
