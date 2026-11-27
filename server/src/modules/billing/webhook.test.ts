@@ -17,6 +17,10 @@ import type { WebhookEventRow } from "./paymentRepository.js";
 
 const webhookHash = "test-hash";
 
+function fakeProviderTxId(): string {
+  return BigInt(`0x${randomUUID().replace(/-/g, "")}`).toString();
+}
+
 function uniqueViolation(): Error {
   return Object.assign(new Error("duplicate event"), { cause: { code: "23505" } });
 }
@@ -42,6 +46,7 @@ function fakeShard(options: FakeShardOptions = {}) {
             txRef: string;
             payload: unknown;
           };
+          if (rows.some((existing) => existing.eventKey === insertedRow.eventKey)) throw uniqueViolation();
           inserted.push(insertedRow);
           rows.push({
             ...insertedRow,
@@ -86,9 +91,12 @@ function harness(options: HarnessOptions = {}) {
   configureShards([shard.db as never]);
 
   const jobs: BillingWebhookJobData[] = [];
+  const queuedEventKeys = new Set<string>();
   const queue: BillingQueue = {
     async enqueueWebhook(data) {
       if (options.enqueueError) throw options.enqueueError;
+      if (queuedEventKeys.has(data.eventKey)) return;
+      queuedEventKeys.add(data.eventKey);
       jobs.push(data);
     },
     async close() {},
@@ -114,7 +122,7 @@ function harness(options: HarnessOptions = {}) {
 function webhookBody(overrides: Record<string, unknown> = {}) {
   const teamId = randomUUID();
   const paymentId = randomUUID();
-  const providerTxId = randomUUID();
+  const providerTxId = fakeProviderTxId();
   return {
     teamId,
     paymentId,
@@ -137,19 +145,34 @@ function webhookBody(overrides: Record<string, unknown> = {}) {
 function legacyWebhookBody(overrides: Record<string, unknown> = {}) {
   const teamId = randomUUID();
   const paymentId = randomUUID();
-  const providerTxId = randomUUID();
+  const providerTxId = fakeProviderTxId();
+  const txRef = `rota.${teamId}.${paymentId}`;
   return {
     teamId,
     paymentId,
     providerTxId,
+    txRef,
     eventKey: `charge.completed:${providerTxId}:successful`,
     body: JSON.stringify({
-      "event.type": "CARD_TRANSACTION",
-      id: providerTxId,
-      txRef: `rota.${teamId}.${paymentId}`,
-      status: "successful",
+      IP: "203.0.113.10",
       amount: "20.00",
+      appfee: "0.00",
+      charge_type: "card",
+      charged_amount: "20.00",
+      createdAt: "2026-11-27T10:00:00Z",
       currency: "USD",
+      customer: { email: "buyer@proof.invalid" },
+      entity: { id: providerTxId },
+      "event.type": "CARD_TRANSACTION",
+      flwRef: `flw-${providerTxId}`,
+      id: providerTxId,
+      merchantbearsfee: "0.00",
+      merchantfee: "0.00",
+      orderRef: txRef,
+      paymentPage: "rota-test",
+      paymentPlan: "monthly",
+      status: "successful",
+      txRef,
       ...overrides,
     }),
   };
@@ -241,7 +264,34 @@ describe("billing webhook route", () => {
     expect(logged).not.toContain(webhookHash);
   });
 
-  it("stores a legacy flat charge event", async () => {
+  it("logs only field names from the real legacy shape", async () => {
+    const started = await start();
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const message = legacyWebhookBody({
+      IP: "198.51.100.77",
+      amount: "98765.43",
+      customer: { email: "do-not-log-customer@proof.invalid" },
+      flwRef: "do-not-log-flw-ref",
+      txRef: "not-a-rota-reference",
+    });
+
+    const response = await postWebhook(started.baseUrl, message.body);
+
+    expect(response.status).toBe(200);
+    const logged = writeSpy.mock.calls.map((call) => String(call[0])).join("");
+    expect(logged).toContain("billing webhook ignored");
+    expect(logged).toContain('"topLevelKeys":["IP","amount","appfee","charge_type","charged_amount","createdAt","currency","customer","entity","event.type","flwRef","id","merchantbearsfee","merchantfee","orderRef","paymentPage","paymentPlan","status","txRef"]');
+    expect(logged).toContain('"dataKeys":[]');
+    expect(logged).toContain('"eventName":"CARD_TRANSACTION"');
+    expect(logged).not.toContain("198.51.100.77");
+    expect(logged).not.toContain("98765.43");
+    expect(logged).not.toContain("do-not-log-customer@proof.invalid");
+    expect(logged).not.toContain("do-not-log-flw-ref");
+    expect(logged).not.toContain("not-a-rota-reference");
+    expect(logged).not.toContain(webhookHash);
+  });
+
+  it("stores and enqueues the real legacy flat shape", async () => {
     const started = await start();
     const message = legacyWebhookBody();
 
@@ -251,8 +301,79 @@ describe("billing webhook route", () => {
     expect(await response.json()).toEqual({ status: "queued" });
     expect(started.inserted).toHaveLength(1);
     expect(started.jobs).toEqual([
-      { eventKey: message.eventKey, teamId: message.teamId, txRef: `rota.${message.teamId}.${message.paymentId}` },
+      { eventKey: message.eventKey, teamId: message.teamId, txRef: message.txRef },
     ]);
+  });
+
+  it("creates one job when the same real legacy event is delivered three times", async () => {
+    const started = await start();
+    const message = legacyWebhookBody();
+
+    const first = await postWebhook(started.baseUrl, message.body);
+    const second = await postWebhook(started.baseUrl, message.body);
+    const third = await postWebhook(started.baseUrl, message.body);
+    const firstBody = (await first.json()) as { status: string };
+    const secondBody = (await second.json()) as { status: string };
+    const thirdBody = (await third.json()) as { status: string };
+
+    expect([first.status, second.status, third.status]).toEqual([200, 200, 200]);
+    expect(firstBody.status).toBe("queued");
+    expect(secondBody.status).toBe("duplicate");
+    expect(thirdBody.status).toBe("duplicate");
+    expect(started.inserted).toHaveLength(1);
+    expect(started.jobs).toEqual([
+      { eventKey: message.eventKey, teamId: message.teamId, txRef: message.txRef },
+    ]);
+  });
+
+  it("ignores a real legacy event with a txRef that does not parse", async () => {
+    const started = await start();
+    const message = legacyWebhookBody({ txRef: "not-a-rota-reference" });
+
+    const response = await postWebhook(started.baseUrl, message.body);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "ignored" });
+    expect(started.inserted).toHaveLength(0);
+    expect(started.jobs).toHaveLength(0);
+  });
+
+  it("ignores a real legacy event with an unrelated event type", async () => {
+    const started = await start();
+    const message = legacyWebhookBody({ "event.type": "TRANSFER" });
+
+    const response = await postWebhook(started.baseUrl, message.body);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "ignored" });
+    expect(started.inserted).toHaveLength(0);
+    expect(started.jobs).toHaveLength(0);
+  });
+
+  it("ignores a real legacy event with a missing id", async () => {
+    const started = await start();
+    const message = legacyWebhookBody();
+    const payload = JSON.parse(message.body) as Record<string, unknown>;
+    delete payload.id;
+
+    const response = await postWebhook(started.baseUrl, JSON.stringify(payload));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "ignored" });
+    expect(started.inserted).toHaveLength(0);
+    expect(started.jobs).toHaveLength(0);
+  });
+
+  it("ignores a real legacy event with a non-numeric id", async () => {
+    const started = await start();
+    const message = legacyWebhookBody({ id: "not-a-number" });
+
+    const response = await postWebhook(started.baseUrl, message.body);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "ignored" });
+    expect(started.inserted).toHaveLength(0);
+    expect(started.jobs).toHaveLength(0);
   });
 
   it("uses unknown as the legacy dedupe status when the body has none", async () => {
