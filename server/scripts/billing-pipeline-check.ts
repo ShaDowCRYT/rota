@@ -148,6 +148,12 @@ async function main(): Promise<void> {
       if (verified === undefined) throw new Error("provider unknown transaction");
       return verified;
     },
+    async verifyByReference(txRef) {
+      for (const verified of verifiedById.values()) {
+        if (verified.txRef === txRef) return verified;
+      }
+      throw new Error("provider unknown transaction");
+    },
   };
 
   const service = createBillingService({
@@ -280,9 +286,9 @@ async function main(): Promise<void> {
   const worker = createBillingWebhookWorker({
     provider,
     repository: repo,
+    paymentRepository: paymentRepo,
     transactions: runShardTransaction,
     activity,
-    currency: "USD",
     now: () => now,
   });
 
