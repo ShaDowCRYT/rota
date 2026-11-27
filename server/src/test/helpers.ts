@@ -181,6 +181,12 @@ export const unusedBillingService: BillingService = {
     throw new Error("unused in this test");
   },
   async assertSeatAvailable() {},
+  async checkout() {
+    throw new Error("unused in this test");
+  },
+  async scheduleChange() {
+    throw new Error("unused in this test");
+  },
 };
 
 export const unusedActivityService: ActivityService = {
