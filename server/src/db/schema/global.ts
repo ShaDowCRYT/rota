@@ -3,6 +3,8 @@ import {
   check,
   index,
   integer,
+  jsonb,
+  pgEnum,
   pgTable,
   primaryKey,
   text,
@@ -143,4 +145,28 @@ export const plans = pgTable(
       sql`${table.extraSeatCents} is null or ${table.extraSeatCents} >= 0`,
     ),
   ],
+);
+
+export const idempotencyKeyStatus = pgEnum("idempotency_key_status", [
+  "in_progress",
+  "completed",
+]);
+
+// Global group: idempotency keys are per-user payment request guards, not team-owned.
+export const idempotencyKeys = pgTable(
+  "idempotency_keys",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    requestHash: text("request_hash").notNull(),
+    status: idempotencyKeyStatus("status").notNull(),
+    responseStatus: integer("response_status"),
+    responseBody: jsonb("response_body"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.key] })],
 );

@@ -5,6 +5,7 @@ import type { Database } from "./client.js";
 export type ShardRouter = (teamId: string) => Database;
 
 let currentRouter: ShardRouter | undefined;
+let currentDatabases: readonly Database[] = [];
 
 export function shardIndexFor(teamId: string, shardCount: number): number {
   if (!Number.isInteger(shardCount) || shardCount < 1) {
@@ -31,6 +32,7 @@ export function createShardRouter(databases: readonly Database[]): ShardRouter {
 }
 
 export function configureShards(databases: readonly Database[]): void {
+  currentDatabases = databases;
   currentRouter = createShardRouter(databases);
 }
 
@@ -40,4 +42,8 @@ export function getShardFor(teamId: string): Database {
   }
 
   return currentRouter(teamId);
+}
+
+export function getAllShards(): readonly Database[] {
+  return currentDatabases;
 }

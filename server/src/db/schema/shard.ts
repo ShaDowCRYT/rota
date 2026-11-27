@@ -147,6 +147,14 @@ export const ledgerEntryType = pgEnum("ledger_entry_type", [
   "renewal",
 ]);
 
+export const paymentKind = pgEnum("payment_kind", ["initial", "change"]);
+export const paymentStatus = pgEnum("payment_status", [
+  "pending",
+  "succeeded",
+  "failed",
+  "expired",
+]);
+
 // Shard group: subscriptions belong to a team. plan_id is a plain text ID because plans live in the global database.
 export const subscriptions = pgTable(
   "subscriptions",
@@ -202,5 +210,62 @@ export const ledgerEntries = pgTable(
     uniqueIndex("ledger_entries_team_idempotency_ref_idx")
       .on(table.teamId, table.idempotencyRef)
       .where(sql`${table.idempotencyRef} is not null`),
+  ],
+);
+
+// Shard group: payments are team billing records tied to a checkout attempt.
+export const payments = pgTable(
+  "payments",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    teamId: uuid("team_id")
+      .notNull()
+      .references(() => teams.id),
+    txRef: text("tx_ref").notNull().unique(),
+    kind: paymentKind("kind").notNull(),
+    amountCents: integer("amount_cents").notNull(),
+    currency: text("currency").notNull(),
+    planId: text("plan_id").notNull(),
+    seats: integer("seats").notNull(),
+    quote: jsonb("quote"),
+    status: paymentStatus("status").notNull().default("pending"),
+    providerTxId: text("provider_tx_id"),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    index("payments_team_created_idx").on(table.teamId, table.createdAt),
+    check("payments_amount_cents_check", sql`${table.amountCents} >= 0`),
+    check("payments_seats_check", sql`${table.seats} > 0`),
+  ],
+);
+
+// Shard group: webhook events are stored for verification/idempotency. No card data.
+export const webhookEvents = pgTable(
+  "webhook_events",
+  {
+    eventKey: text("event_key").primaryKey(),
+    teamId: uuid("team_id")
+      .notNull()
+      .references(() => teams.id),
+    provider: text("provider").notNull(),
+    txRef: text("tx_ref").notNull(),
+    payload: jsonb("payload").notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+  },
+  (table) => [
+    index("webhook_events_team_received_idx").on(table.teamId, table.receivedAt),
+    index("webhook_events_processed_at_idx").on(table.processedAt),
   ],
 );
