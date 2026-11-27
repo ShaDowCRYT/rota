@@ -44,7 +44,9 @@ function isObject(value: unknown): value is Record<string, unknown> {
 const SAFE_EVENT_NAME = /^[A-Za-z._]+$/;
 const MAX_SAFE_EVENT_NAME_LENGTH = 64;
 const MAX_LOGGED_KEYS = 50;
-const LEGACY_CHARGE_EVENT = /^[A-Z][A-Z0-9_]*TRANSACTION$/;
+const MAX_DEDUPE_STATUS_LENGTH = 64;
+const LETTERS_ONLY = /^[A-Za-z]+$/;
+const TX_REF_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function nonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
@@ -61,9 +63,31 @@ function fieldNames(value: unknown): string[] {
   return Object.keys(value).sort().slice(0, MAX_LOGGED_KEYS);
 }
 
+function dedupeStatus(value: unknown): string {
+  if (typeof value !== "string") return "unknown";
+  if (value.length === 0 || value.length > MAX_DEDUPE_STATUS_LENGTH) return "unknown";
+  return LETTERS_ONLY.test(value) ? value : "unknown";
+}
+
+function positiveIntegerId(value: unknown): string | undefined {
+  if (typeof value === "number") {
+    return Number.isSafeInteger(value) && value > 0 ? String(value) : undefined;
+  }
+  if (typeof value !== "string" || !/^\d+$/.test(value) || BigInt(value) <= 0n) {
+    return undefined;
+  }
+  return value;
+}
+
+function isRotaTxRef(value: string): boolean {
+  const parts = value.split(".");
+  if (parts.length !== 3 || parts[0] !== "rota") return false;
+  return TX_REF_UUID.test(parts[1]) && TX_REF_UUID.test(parts[2]);
+}
+
 function isLegacyChargeEventName(value: string): boolean {
   const normalized = value.toUpperCase();
-  return normalized === "CARD_TRANSACTION" || normalized === "BANK_TRANSFER" || LEGACY_CHARGE_EVENT.test(normalized);
+  return normalized.startsWith("CARD_TRANSACTION") || normalized.endsWith("_TRANSACTION");
 }
 
 export function parseFlutterwaveWebhook(payload: unknown): ParsedWebhook | undefined {
@@ -73,28 +97,28 @@ export function parseFlutterwaveWebhook(payload: unknown): ParsedWebhook | undef
   const data = isObject(record.data) ? record.data : undefined;
   const modernEvent = nonEmptyString(record.event);
   if (modernEvent === "charge.completed" && data !== undefined) {
-    const providerTxId = nonEmptyString(data.id);
+    const providerTxId = positiveIntegerId(data.id);
     const txRef = nonEmptyString(data.tx_ref);
-    if (providerTxId !== undefined && txRef !== undefined) {
+    if (providerTxId !== undefined && txRef !== undefined && isRotaTxRef(txRef)) {
       return {
         providerTxId,
         txRef,
         eventName: modernEvent,
-        dedupeStatus: nonEmptyString(data.status) ?? "unknown",
+        dedupeStatus: dedupeStatus(data.status),
       };
     }
   }
 
   const legacyEvent = nonEmptyString(record["event.type"]);
   if (legacyEvent !== undefined && isLegacyChargeEventName(legacyEvent)) {
-    const providerTxId = nonEmptyString(record.id);
+    const providerTxId = positiveIntegerId(record.id);
     const txRef = nonEmptyString(record.txRef);
-    if (providerTxId !== undefined && txRef !== undefined) {
+    if (providerTxId !== undefined && txRef !== undefined && isRotaTxRef(txRef)) {
       return {
         providerTxId,
         txRef,
         eventName: legacyEvent,
-        dedupeStatus: nonEmptyString(record.status) ?? "unknown",
+        dedupeStatus: dedupeStatus(record.status),
       };
     }
   }
