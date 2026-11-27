@@ -36,9 +36,18 @@ import { createIdempotencyRepository } from "./modules/billing/idempotencyReposi
 import { createPaymentRepository } from "./modules/billing/paymentRepository.js";
 import { createDevEmailSender } from "./providers/email.js";
 import { createFlutterwaveProvider } from "./providers/payments/flutterwave.js";
-import { createBillingQueue, createBillingWorker } from "./jobs/billingQueue.js";
-import { createBillingQueueAdapter } from "./jobs/billingQueueAdapter.js";
+import {
+  createBillingMaintenanceQueue,
+  createBillingMaintenanceWorker,
+  createBillingQueue,
+  createBillingWorker,
+} from "./jobs/billingQueue.js";
+import {
+  createBillingMaintenanceQueueAdapter,
+  createBillingQueueAdapter,
+} from "./jobs/billingQueueAdapter.js";
 import { createBillingWebhookWorker } from "./modules/billing/worker.js";
+import { createBillingMaintenanceProcessor } from "./modules/billing/maintenance.js";
 import { reenqueueUnprocessedWebhookEvents } from "./modules/billing/recovery.js";
 
 initSentry({ dsn: env.SENTRY_DSN, environment: env.NODE_ENV });
@@ -75,6 +84,12 @@ const paymentProvider =
 const billingQueueRuntime =
   paymentsEnabled && env.REDIS_URL ? createBillingQueue({ redisUrl: env.REDIS_URL }) : undefined;
 const billingQueue = billingQueueRuntime ? createBillingQueueAdapter(billingQueueRuntime) : undefined;
+const billingMaintenanceRuntime =
+  paymentsEnabled && env.REDIS_URL ? createBillingMaintenanceQueue({ redisUrl: env.REDIS_URL }) : undefined;
+const billingMaintenanceQueue = billingMaintenanceRuntime
+  ? createBillingMaintenanceQueueAdapter(billingMaintenanceRuntime)
+  : undefined;
+const emailSender = createDevEmailSender(env.NODE_ENV);
 
 const activityService = createActivityService(createActivityRepository());
 const billingService = createBillingService({
@@ -132,7 +147,7 @@ const app = createApp({
   swapsService,
   resetRepository: createPasswordResetRepository(database),
   passwords,
-  emailSender: createDevEmailSender(env.NODE_ENV),
+  emailSender,
   resetTtlMinutes: env.RESET_TOKEN_TTL_MINUTES,
   trustProxyHops: env.TRUST_PROXY_HOPS,
   googleAudience: env.GOOGLE_WEB_CLIENT_ID,
@@ -151,14 +166,45 @@ if (env.RUN_WORKER && paymentsEnabled && paymentProvider && env.REDIS_URL) {
     createBillingWebhookWorker({
       provider: paymentProvider,
       repository: createBillingRepository(database),
+      paymentRepository: createPaymentRepository(),
       transactions: runShardTransaction,
       activity: activityService,
-      currency: env.BILLING_CURRENCY,
       now: () => new Date(),
     }),
   );
   void reenqueueUnprocessedWebhookEvents(billingQueue!, 100).then((count) => {
     if (count > 0) logger.info("re-enqueued unprocessed billing webhooks", { count });
+  });
+}
+
+let billingMaintenanceWorker: ReturnType<typeof createBillingMaintenanceWorker> | undefined;
+if (
+  env.RUN_WORKER &&
+  paymentsEnabled &&
+  paymentProvider &&
+  env.REDIS_URL &&
+  billingMaintenanceQueue !== undefined
+) {
+  billingMaintenanceWorker = createBillingMaintenanceWorker(
+    { redisUrl: env.REDIS_URL },
+    createBillingMaintenanceProcessor({
+      repository: createBillingRepository(database),
+      paymentRepository: createPaymentRepository(),
+      transactions: runShardTransaction,
+      provider: paymentProvider,
+      email: emailSender,
+      activity: activityService,
+      currency: env.BILLING_CURRENCY,
+      ensureRenewalCheckout: (teamId, paymentId, email) =>
+        billingService.createRenewalCheckout(teamId, paymentId, email),
+      now: () => new Date(),
+      limit: 100,
+    }),
+  );
+  void billingMaintenanceQueue.enqueueNow("startup").catch((error) => {
+    logger.error("failed to enqueue startup billing maintenance", {
+      error: getErrorMessage(error),
+    });
   });
 }
 
@@ -196,6 +242,26 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
       await billingWorker.close();
     } catch (error) {
       logger.error("failed to close billing worker", {
+        error: getErrorMessage(error),
+      });
+      exitCode = 1;
+    }
+  }
+  if (billingMaintenanceWorker !== undefined) {
+    try {
+      await billingMaintenanceWorker.close();
+    } catch (error) {
+      logger.error("failed to close billing maintenance worker", {
+        error: getErrorMessage(error),
+      });
+      exitCode = 1;
+    }
+  }
+  if (billingMaintenanceRuntime !== undefined) {
+    try {
+      await billingMaintenanceRuntime.close();
+    } catch (error) {
+      logger.error("failed to close billing maintenance queue", {
         error: getErrorMessage(error),
       });
       exitCode = 1;

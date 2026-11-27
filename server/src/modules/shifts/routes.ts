@@ -7,7 +7,9 @@ import {
   type RateLimiter,
 } from "../../middleware/rateLimit.js";
 import { requireTeamRole } from "../../middleware/teamRole.js";
+import { requireWritableTeam } from "../../middleware/writableTeam.js";
 import type { AuthService } from "../auth/service.js";
+import type { BillingService } from "../billing/types.js";
 import type { TeamsService } from "../teams/types.js";
 import {
   createShiftSchema,
@@ -21,6 +23,7 @@ export function createShiftsRouter(
   authService: AuthService,
   service: ShiftsService,
   teamsService: TeamsService,
+  billingService: BillingService,
   limiter: RateLimiter,
 ): Router {
   const router = Router();
@@ -29,6 +32,7 @@ export function createShiftsRouter(
     "/teams/:teamId/shifts",
     requireAuth(authService),
     requireTeamRole(teamsService, "owner", "manager"),
+    requireWritableTeam(billingService),
     async (req, res, next) => {
       const teamId = req.team?.id;
       const parsed = createShiftSchema.safeParse(req.body);
@@ -79,6 +83,7 @@ export function createShiftsRouter(
     "/teams/:teamId/shifts/:shiftId",
     requireAuth(authService),
     requireTeamRole(teamsService, "owner", "manager"),
+    requireWritableTeam(billingService),
     async (req, res, next) => {
       const teamId = req.team?.id;
       const parsedShift = shiftIdSchema.safeParse(req.params.shiftId);
@@ -112,6 +117,7 @@ export function createShiftsRouter(
     "/teams/:teamId/shifts/:shiftId",
     requireAuth(authService),
     requireTeamRole(teamsService, "owner", "manager"),
+    requireWritableTeam(billingService),
     async (req, res, next) => {
       const teamId = req.team?.id;
       const parsedShift = shiftIdSchema.safeParse(req.params.shiftId);

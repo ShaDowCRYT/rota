@@ -8,6 +8,7 @@ import { assertSeatAvailable } from "./seats.js";
 import {
   DuplicateTokenError,
   type CreatedInvite,
+  type InviteRecord,
   type InviteRole,
   type InviteSummaryRecord,
   type InviteView,
@@ -26,6 +27,18 @@ function invalidInviteError(): HttpError {
 
 function alreadyMemberError(): HttpError {
   return new HttpError(409, "Already a member");
+}
+
+function requireUsableInvite(invite: InviteRecord | undefined): InviteRecord {
+  if (
+    invite === undefined ||
+    invite.usedAt !== null ||
+    invite.revokedAt !== null ||
+    invite.expiresAt <= new Date()
+  ) {
+    throw invalidInviteError();
+  }
+  return invite;
 }
 
 function inviteView(
@@ -165,18 +178,18 @@ export function createTeamsService(deps: TeamsServiceDeps): TeamsService {
       return deps.repository.revokeInvite(teamId, inviteId);
     },
 
+    async resolveInviteTeamId(token) {
+      const invite = requireUsableInvite(
+        await deps.repository.findInviteByTokenHash(hashOpaqueToken(token)),
+      );
+      return invite.teamId;
+    },
+
     async acceptInvite(userId, email, token) {
       const tokenHash = hashOpaqueToken(token);
-      const invite = await deps.repository.findInviteByTokenHash(tokenHash);
-
-      if (
-        invite === undefined ||
-        invite.usedAt !== null ||
-        invite.revokedAt !== null ||
-        invite.expiresAt <= new Date()
-      ) {
-        throw invalidInviteError();
-      }
+      const invite = requireUsableInvite(
+        await deps.repository.findInviteByTokenHash(tokenHash),
+      );
 
       if (
         invite.email !== null &&

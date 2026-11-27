@@ -1,9 +1,20 @@
 import { randomUUID } from "node:crypto";
 
-import type { BillingWebhookJobData, BillingQueueRuntime } from "./billingQueue.js";
+import type {
+  BillingWebhookJobData,
+  BillingQueueRuntime,
+  BillingMaintenanceJobData,
+  BillingMaintenanceQueueRuntime,
+} from "./billingQueue.js";
 
 export interface BillingQueue {
   enqueueWebhook(data: BillingWebhookJobData): Promise<void>;
+  enqueueMaintenance?(data?: BillingMaintenanceJobData): Promise<void>;
+  close(): Promise<void>;
+}
+
+export interface BillingMaintenanceQueue {
+  enqueueNow(reason?: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -18,12 +29,33 @@ export function createBillingQueueAdapter(runtime: BillingQueueRuntime): Billing
   };
 }
 
-export function createFakeBillingQueue(): BillingQueue & { jobs: BillingWebhookJobData[] } {
+export function createBillingMaintenanceQueueAdapter(
+  runtime: BillingMaintenanceQueueRuntime,
+): BillingMaintenanceQueue {
+  return {
+    async enqueueNow(reason = "manual") {
+      await runtime.queue.add("billing-maintenance", { reason });
+    },
+    async close() {
+      await runtime.close();
+    },
+  };
+}
+
+export function createFakeBillingQueue(): BillingQueue & {
+  jobs: BillingWebhookJobData[];
+  maintenanceJobs: BillingMaintenanceJobData[];
+} {
   const jobs: BillingWebhookJobData[] = [];
+  const maintenanceJobs: BillingMaintenanceJobData[] = [];
   return {
     jobs,
+    maintenanceJobs,
     async enqueueWebhook(data) {
       jobs.push(data);
+    },
+    async enqueueMaintenance(data = {}) {
+      maintenanceJobs.push(data);
     },
     async close() {},
   };

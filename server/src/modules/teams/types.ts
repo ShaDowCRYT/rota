@@ -123,6 +123,7 @@ export interface TeamsService {
   ): Promise<CreatedInvite>;
   listInvites(teamId: string): Promise<InviteView[]>;
   revokeInvite(teamId: string, inviteId: string): Promise<void>;
+  resolveInviteTeamId(token: string): Promise<string>;
   acceptInvite(
     userId: string,
     email: string,

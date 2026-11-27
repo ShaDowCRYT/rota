@@ -9,6 +9,8 @@ import {
   type RateLimiter,
 } from "../../middleware/rateLimit.js";
 import { requireTeamRole } from "../../middleware/teamRole.js";
+import { requireWritableTeam } from "../../middleware/writableTeam.js";
+import type { BillingService } from "../billing/types.js";
 import {
   acceptInviteSchema,
   changeRoleSchema,
@@ -23,6 +25,7 @@ import type { TeamsService } from "./types.js";
 export function createTeamsRouter(
   authService: AuthService,
   service: TeamsService,
+  billingService: BillingService,
   limiter: RateLimiter,
 ): Router {
   const router = Router();
@@ -106,6 +109,7 @@ export function createTeamsRouter(
     "/teams/:teamId/members/:userId",
     requireAuth(authService),
     requireTeamRole(service, "owner"),
+    requireWritableTeam(billingService),
     async (req, res, next) => {
       const teamId = req.team?.id;
       const parsedUser = userIdSchema.safeParse(req.params.userId);
@@ -128,6 +132,7 @@ export function createTeamsRouter(
     "/teams/:teamId/members/:userId",
     requireAuth(authService),
     requireTeamRole(service, "owner"),
+    requireWritableTeam(billingService),
     async (req, res, next) => {
       const teamId = req.team?.id;
       const parsedUser = userIdSchema.safeParse(req.params.userId);
@@ -149,6 +154,7 @@ export function createTeamsRouter(
     "/teams/:teamId/invites",
     requireAuth(authService),
     requireTeamRole(service, "owner"),
+    requireWritableTeam(billingService),
     inviteCreateRateLimit(limiter),
     async (req, res, next) => {
       const teamId = req.team?.id;
@@ -196,6 +202,7 @@ export function createTeamsRouter(
     "/teams/:teamId/invites/:inviteId",
     requireAuth(authService),
     requireTeamRole(service, "owner"),
+    requireWritableTeam(billingService),
     async (req, res, next) => {
       const teamId = req.team?.id;
       const parsedInvite = inviteIdSchema.safeParse(req.params.inviteId);
@@ -225,6 +232,8 @@ export function createTeamsRouter(
       }
 
       try {
+        const teamId = await service.resolveInviteTeamId(parsed.data.token);
+        await billingService.assertTeamWritable(teamId);
         res.status(201).json(
           await service.acceptInvite(
             req.user.id,

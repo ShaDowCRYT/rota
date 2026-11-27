@@ -7,7 +7,9 @@ import {
   type RateLimiter,
 } from "../../middleware/rateLimit.js";
 import { requireTeamRole } from "../../middleware/teamRole.js";
+import { requireWritableTeam } from "../../middleware/writableTeam.js";
 import type { AuthService } from "../auth/service.js";
+import type { BillingService } from "../billing/types.js";
 import type { TeamsService } from "../teams/types.js";
 import {
   approveSwapSchema,
@@ -22,6 +24,7 @@ export function createSwapsRouter(
   authService: AuthService,
   service: SwapsService,
   teamsService: TeamsService,
+  billingService: BillingService,
   limiter: RateLimiter,
 ): Router {
   const router = Router();
@@ -30,6 +33,7 @@ export function createSwapsRouter(
     "/teams/:teamId/shifts/:shiftId/swap-requests",
     requireAuth(authService),
     requireTeamRole(teamsService),
+    requireWritableTeam(billingService),
     async (req, res, next) => {
       const teamId = req.team?.id;
       const parsedShift = swapRequestIdSchema.safeParse(req.params.shiftId);
@@ -97,6 +101,7 @@ export function createSwapsRouter(
     "/teams/:teamId/swap-requests/:requestId/approve",
     requireAuth(authService),
     requireTeamRole(teamsService, "owner", "manager"),
+    requireWritableTeam(billingService),
     async (req, res, next) => {
       const teamId = req.team?.id;
       const parsedRequest = swapRequestIdSchema.safeParse(req.params.requestId);
@@ -131,6 +136,7 @@ export function createSwapsRouter(
     "/teams/:teamId/swap-requests/:requestId/reject",
     requireAuth(authService),
     requireTeamRole(teamsService, "owner", "manager"),
+    requireWritableTeam(billingService),
     async (req, res, next) => {
       const teamId = req.team?.id;
       const parsedRequest = swapRequestIdSchema.safeParse(req.params.requestId);
@@ -164,6 +170,7 @@ export function createSwapsRouter(
     "/teams/:teamId/swap-requests/:requestId/cancel",
     requireAuth(authService),
     requireTeamRole(teamsService),
+    requireWritableTeam(billingService),
     async (req, res, next) => {
       const teamId = req.team?.id;
       const parsedRequest = swapRequestIdSchema.safeParse(req.params.requestId);

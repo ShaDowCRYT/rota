@@ -148,7 +148,14 @@ export function createApp(deps: AppDependencies): Express {
   app.use(
     createAuthRouter(deps.authService, resetService, deps.limiter, googleService),
   );
-  app.use(createTeamsRouter(deps.authService, deps.teamsService, deps.limiter));
+  app.use(
+    createTeamsRouter(
+      deps.authService,
+      deps.teamsService,
+      deps.billingService,
+      deps.limiter,
+    ),
+  );
   app.use(
     createBillingRouter(
       deps.authService,
@@ -171,6 +178,7 @@ export function createApp(deps: AppDependencies): Express {
       deps.authService,
       deps.shiftsService,
       deps.teamsService,
+      deps.billingService,
       deps.limiter,
     ),
   );
@@ -179,6 +187,7 @@ export function createApp(deps: AppDependencies): Express {
       deps.authService,
       deps.swapsService,
       deps.teamsService,
+      deps.billingService,
       deps.limiter,
     ),
   );
