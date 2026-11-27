@@ -51,6 +51,32 @@ Planned:
 
 7. The server exposes `GET /health` and `GET /health/ready`.
 
+## Payments (Flutterwave test mode)
+
+Payments are server-only and use Flutterwave **test mode**. The app never holds secret keys and never decides that a payment succeeded.
+
+### Configure test mode
+
+1. In the server `.env`, set `FLUTTERWAVE_SECRET_KEY`, `FLUTTERWAVE_SECRET_HASH`, `BILLING_CURRENCY`, `PUBLIC_API_URL` and `RUN_WORKER=true`. Names are listed in `.env.example`; never paste secret values into a file that gets committed.
+2. In the Flutterwave test dashboard, set the webhook URL to `<PUBLIC_API_URL>/webhooks/flutterwave` and use the same webhook secret hash as `FLUTTERWAVE_SECRET_HASH`.
+3. Start the server with `npm run dev`. The worker runs in the same process while `RUN_WORKER=true`. On start it re-enqueues unprocessed webhook events.
+4. If a value is missing, payments return 503 and the webhook route is not mounted.
+
+### Make a real test-mode payment
+
+1. Sign in as an Owner and create a team. Copy the team UUID from the app or your database.
+2. Send `POST /teams/<teamId>/billing/checkout` with an `Idempotency-Key` header (at least 8 printable characters) and body `{"planId":"starter","seats":5}`. Use a fresh key for a new attempt; repeating the same key returns the stored result.
+3. The response contains `checkoutUrl`, `paymentId`, `amountCents`, and `currency`. For Starter, `amountCents` is `2000`. Open `checkoutUrl` and pay with a Flutterwave test card.
+4. Flutterwave redirects to `<PUBLIC_API_URL>/billing/return`. That page only says payment is processing. It never marks the payment paid.
+5. Flutterwave sends `POST /webhooks/flutterwave` with `verif-hash`. The server rejects a bad hash with 401, stores the event ID, queues a job, and returns 200.
+6. The worker verifies the transaction, then checks `tx_ref`, integer cents, and currency. A mismatch marks the payment failed and writes no ledger rows. A provider error is retried by BullMQ with exponential backoff.
+7. Poll `GET /teams/<teamId>/billing`. Show success only when `status` is `active` and `latestPaymentStatus` is `succeeded`.
+8. To test idempotency, send the same webhook more than once. The duplicate response is `{ "status": "duplicate" }` and it adds no ledger rows once processed.
+
+### Local proof runs
+
+From the `server` folder, run `npx tsx scripts/billing-pipeline-check.ts --quick` for a small check or `npx tsx scripts/billing-pipeline-check.ts --full` for 50 simultaneous jobs over 5 rounds. The script prints `amount_mismatch_ledger_rows: 0` from a fresh proof team. See [`docs/BILLING.md`](docs/BILLING.md) for the full pipeline and cleanup rules.
+
 ## How to run the app locally
 
 You need the server running first (see "How to run the server locally" above) and an Android phone with Expo Go, on the **same Wi-Fi** as your computer.
