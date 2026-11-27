@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createFlutterwaveProvider, centsToMajorString, majorToCents, verifyFlutterwaveHash } from "./flutterwave.js";
+import {
+  createFlutterwaveProvider,
+  centsToMajorString,
+  describeFlutterwaveWebhook,
+  majorToCents,
+  parseFlutterwaveWebhook,
+  verifyFlutterwaveHash,
+} from "./flutterwave.js";
+
 
 describe("flutterwave adapter", () => {
   it("converts cents/major amounts as integer strings", () => {
@@ -36,5 +44,67 @@ describe("flutterwave adapter", () => {
 
     const verified = await provider.verifyTransaction("123");
     expect(verified).toMatchObject({ txRef: "rota.t.p", status: "successful", amountCents: 2000, currency: "USD" });
+  });
+});
+
+describe("flutterwave webhook parser", () => {
+  const modern = {
+    event: "charge.completed",
+    data: { id: "provider-1", tx_ref: "rota.team.payment", status: "successful" },
+  };
+  const legacy = {
+    "event.type": "CARD_TRANSACTION",
+    id: "provider-2",
+    txRef: "rota.team.payment",
+    status: "successful",
+  };
+
+  it("accepts both modern and legacy charge payloads", () => {
+    expect(parseFlutterwaveWebhook(modern)).toEqual({
+      providerTxId: "provider-1",
+      txRef: "rota.team.payment",
+      eventName: "charge.completed",
+      dedupeStatus: "successful",
+    });
+    expect(parseFlutterwaveWebhook(legacy)).toEqual({
+      providerTxId: "provider-2",
+      txRef: "rota.team.payment",
+      eventName: "CARD_TRANSACTION",
+      dedupeStatus: "successful",
+    });
+  });
+
+  it("uses unknown when the body status is absent", () => {
+    expect(parseFlutterwaveWebhook({ ...legacy, status: undefined })?.dedupeStatus).toBe("unknown");
+  });
+
+  it("rejects missing id and missing tx_ref in both shapes", () => {
+    expect(parseFlutterwaveWebhook({ event: "charge.completed", data: { tx_ref: "rota.team.payment" } })).toBeUndefined();
+    expect(parseFlutterwaveWebhook({ event: "charge.completed", data: { id: "provider-1" } })).toBeUndefined();
+    expect(parseFlutterwaveWebhook({ "event.type": "CARD_TRANSACTION", txRef: "rota.team.payment" })).toBeUndefined();
+    expect(parseFlutterwaveWebhook({ "event.type": "CARD_TRANSACTION", id: "provider-2" })).toBeUndefined();
+  });
+
+  it("ignores unrelated event types in both shapes", () => {
+    expect(parseFlutterwaveWebhook({ event: "transfer.completed", data: { id: "provider-1", tx_ref: "rota.team.payment" } })).toBeUndefined();
+    expect(parseFlutterwaveWebhook({ "event.type": "TRANSFER_COMPLETED", id: "provider-2", txRef: "rota.team.payment" })).toBeUndefined();
+  });
+
+  it("rejects non-string provider fields", () => {
+    expect(parseFlutterwaveWebhook({ event: 123, data: modern.data })).toBeUndefined();
+    expect(parseFlutterwaveWebhook({ event: "charge.completed", data: { ...modern.data, id: 123 } })).toBeUndefined();
+    expect(parseFlutterwaveWebhook({ event: "charge.completed", data: { ...modern.data, tx_ref: 123 } })).toBeUndefined();
+    expect(parseFlutterwaveWebhook({ "event.type": 123, id: "provider-2", txRef: "rota.team.payment" })).toBeUndefined();
+    expect(parseFlutterwaveWebhook({ "event.type": "CARD_TRANSACTION", id: 123, txRef: "rota.team.payment" })).toBeUndefined();
+    expect(parseFlutterwaveWebhook({ "event.type": "CARD_TRANSACTION", id: "provider-2", txRef: 123 })).toBeUndefined();
+  });
+
+  it("describes ignored payloads with names and a safe event label only", () => {
+    expect(describeFlutterwaveWebhook({ "event.type": "CARD_TRANSACTION", id: "provider-2", data: { note: "secret-value" } })).toEqual({
+      topLevelKeys: ["data", "event.type", "id"],
+      dataKeys: ["note"],
+      eventName: "CARD_TRANSACTION",
+    });
+    expect(describeFlutterwaveWebhook({ event: "charge.completed\nsecret-value" }).eventName).toBeUndefined();
   });
 });

@@ -1,12 +1,15 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 
 import { HttpError } from "../../lib/errors.js";
 import type {
   CheckoutInput,
   CheckoutResult,
+  IgnoredWebhookSummary,
+  ParsedWebhook,
   PaymentProvider,
   VerifiedTransaction,
 } from "./types.js";
+
 
 export interface FlutterwaveConfig {
   secretKey: string;
@@ -38,7 +41,79 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+const SAFE_EVENT_NAME = /^[A-Za-z._]+$/;
+const MAX_SAFE_EVENT_NAME_LENGTH = 64;
+const MAX_LOGGED_KEYS = 50;
+const LEGACY_CHARGE_EVENT = /^[A-Z][A-Z0-9_]*TRANSACTION$/;
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function safeEventName(value: unknown): string | undefined {
+  const name = nonEmptyString(value);
+  if (name === undefined || name.length > MAX_SAFE_EVENT_NAME_LENGTH) return undefined;
+  return SAFE_EVENT_NAME.test(name) ? name : undefined;
+}
+
+function fieldNames(value: unknown): string[] {
+  if (!isObject(value)) return [];
+  return Object.keys(value).sort().slice(0, MAX_LOGGED_KEYS);
+}
+
+function isLegacyChargeEventName(value: string): boolean {
+  const normalized = value.toUpperCase();
+  return normalized === "CARD_TRANSACTION" || normalized === "BANK_TRANSFER" || LEGACY_CHARGE_EVENT.test(normalized);
+}
+
+export function parseFlutterwaveWebhook(payload: unknown): ParsedWebhook | undefined {
+  const record = isObject(payload) ? payload : undefined;
+  if (record === undefined) return undefined;
+
+  const data = isObject(record.data) ? record.data : undefined;
+  const modernEvent = nonEmptyString(record.event);
+  if (modernEvent === "charge.completed" && data !== undefined) {
+    const providerTxId = nonEmptyString(data.id);
+    const txRef = nonEmptyString(data.tx_ref);
+    if (providerTxId !== undefined && txRef !== undefined) {
+      return {
+        providerTxId,
+        txRef,
+        eventName: modernEvent,
+        dedupeStatus: nonEmptyString(data.status) ?? "unknown",
+      };
+    }
+  }
+
+  const legacyEvent = nonEmptyString(record["event.type"]);
+  if (legacyEvent !== undefined && isLegacyChargeEventName(legacyEvent)) {
+    const providerTxId = nonEmptyString(record.id);
+    const txRef = nonEmptyString(record.txRef);
+    if (providerTxId !== undefined && txRef !== undefined) {
+      return {
+        providerTxId,
+        txRef,
+        eventName: legacyEvent,
+        dedupeStatus: nonEmptyString(record.status) ?? "unknown",
+      };
+    }
+  }
+
+  return undefined;
+}
+
+export function describeFlutterwaveWebhook(payload: unknown): IgnoredWebhookSummary {
+  const record = isObject(payload) ? payload : undefined;
+  const eventName = safeEventName(record?.event) ?? safeEventName(record?.["event.type"]);
+  return {
+    topLevelKeys: fieldNames(record),
+    dataKeys: fieldNames(record?.data),
+    ...(eventName !== undefined ? { eventName } : {}),
+  };
+}
+
 export function centsToMajorString(cents: number): string {
+
   if (!Number.isInteger(cents) || cents < 0) {
     throw new Error("amount cents must be a non-negative integer");
   }
@@ -182,9 +257,13 @@ export function createFlutterwaveProvider(config: FlutterwaveConfig): PaymentPro
       const received = Array.isArray(raw) ? raw[0] : raw;
       return verifyFlutterwaveHash(config.secretHash, received);
     },
-  };
-}
 
-export function hashEventKey(eventKey: string): string {
-  return createHash("sha256").update(eventKey).digest("hex").slice(0, 16);
+    parseWebhook(payload): ParsedWebhook | undefined {
+      return parseFlutterwaveWebhook(payload);
+    },
+
+    describeIgnoredWebhook(payload): IgnoredWebhookSummary {
+      return describeFlutterwaveWebhook(payload);
+    },
+  };
 }
