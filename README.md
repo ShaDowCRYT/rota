@@ -75,7 +75,13 @@ Payments are server-only and use Flutterwave **test mode**. The app never holds 
 
 ### Local proof runs
 
-From the `server` folder, run `npx tsx scripts/billing-pipeline-check.ts --quick` for a small check or `npx tsx scripts/billing-pipeline-check.ts --full` for 50 simultaneous jobs over 5 rounds. The script prints `amount_mismatch_ledger_rows: 0` from a fresh proof team. See [`docs/BILLING.md`](docs/BILLING.md) for the full pipeline and cleanup rules.
+From the `server` folder, run `npx tsx scripts/billing-pipeline-check.ts --quick` for a small check or `npx tsx scripts/billing-pipeline-check.ts --full` for 50 simultaneous jobs over 5 rounds. The script prints `amount_mismatch_ledger_rows: 0` from a fresh proof team. Run `npx tsx scripts/lifecycle-check.ts --quick` to prove renewals, notices, restriction, and reconciliation with a fake provider. See [`docs/BILLING.md`](docs/BILLING.md) for the full pipeline and cleanup rules.
+
+## Billing lifecycle
+
+Subscriptions move from `active` to `past_due` when the 30-day period ends. The owner receives notices on day 0, day 3, and day 5. On day 5 the team becomes `restricted`: staff and managers keep read access, all shift/swap/invite/member writes return 402, and the owner can still open billing and pay. A verified renewal starts the next 30-day period.
+
+A 15-minute BullMQ scheduler handles renewals. A startup job catches up when the Render service wakes. If a webhook is missed, the scheduler verifies stale renewal payments by `tx_ref` through the same apply function as the webhook worker, so a payment cannot be applied twice. See decision [`0030`](docs/decisions/0030-billing-lifecycle-and-reconciliation.md) for the choices and Redis command estimate.
 
 ## How to run the app locally
 
