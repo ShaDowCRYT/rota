@@ -36,6 +36,13 @@
       "when": 1795728565693,
       "tag": "0004_billing_payments_webhooks",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795810249140,
+      "tag": "0005_billing_lifecycle",
+      "breakpoints": true
     }
   ]
 }

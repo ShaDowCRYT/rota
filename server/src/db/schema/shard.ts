@@ -7,6 +7,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -147,7 +148,7 @@ export const ledgerEntryType = pgEnum("ledger_entry_type", [
   "renewal",
 ]);
 
-export const paymentKind = pgEnum("payment_kind", ["initial", "change"]);
+export const paymentKind = pgEnum("payment_kind", ["initial", "change", "renewal"]);
 export const paymentStatus = pgEnum("payment_status", [
   "pending",
   "succeeded",
@@ -169,6 +170,8 @@ export const subscriptions = pgTable(
     status: subscriptionStatus("status").notNull().default("none"),
     pendingPlanId: text("pending_plan_id"),
     pendingSeats: integer("pending_seats"),
+    graceEndsAt: timestamp("grace_ends_at", { withTimezone: true }),
+    lastNotice: smallint("last_notice").notNull().default(0),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -179,6 +182,8 @@ export const subscriptions = pgTable(
       "subscriptions_pending_seats_check",
       sql`${table.pendingSeats} is null or ${table.pendingSeats} > 0`,
     ),
+    check("subscriptions_last_notice_check", sql`${table.lastNotice} between 0 and 3`),
+    index("subscriptions_status_period_end_idx").on(table.status, table.periodEnd),
   ],
 );
 
@@ -232,6 +237,7 @@ export const payments = pgTable(
     quote: jsonb("quote"),
     status: paymentStatus("status").notNull().default("pending"),
     providerTxId: text("provider_tx_id"),
+    checkoutUrl: text("checkout_url"),
     createdBy: uuid("created_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -242,6 +248,7 @@ export const payments = pgTable(
   },
   (table) => [
     index("payments_team_created_idx").on(table.teamId, table.createdAt),
+    index("payments_kind_status_updated_idx").on(table.kind, table.status, table.updatedAt),
     check("payments_amount_cents_check", sql`${table.amountCents} >= 0`),
     check("payments_seats_check", sql`${table.seats} > 0`),
   ],
