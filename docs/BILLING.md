@@ -79,11 +79,13 @@ The redirect never decides success. Only the verified webhook job can mark a pay
 Only `server/src/providers/payments/flutterwave.ts` reads Flutterwave field names.
 
 - Modern shape: `event: "charge.completed"`, `data.id`, `data.tx_ref`, optional `data.status`.
-- Legacy flat shape: `"event.type": "CARD_TRANSACTION"` (or a similar charge type), top-level `id`, `txRef`, optional `status`.
+- The deployed legacy account sends a flat payload with no `data` object. Its top-level field names are exactly `IP`, `amount`, `appfee`, `charge_type`, `charged_amount`, `createdAt`, `currency`, `customer`, `entity`, `event.type`, `flwRef`, `id`, `merchantbearsfee`, `merchantfee`, `orderRef`, `paymentPage`, `paymentPlan`, `status`, `txRef`.
+- The legacy event type is the literal top-level key `"event.type"` with dot notation. Accepted legacy values start with `CARD_TRANSACTION` or end with `_TRANSACTION`, so `CARD_TRANSACTION` and `BANK_TRANSFER_TRANSACTION` are charge events but `TRANSFER` and `TRANSFER_COMPLETED` are ignored.
+- Legacy `id` must be a positive integer or a numeric string; it is normalized with `String(id)`. Legacy `txRef` must parse as `rota.<teamId>.<paymentId>` where both IDs are UUIDs.
 - Both shapes normalize to provider transaction ID, tx ref, and event name. Legacy charge events are treated like `charge.completed`.
-- `event_key` is `charge.completed:<providerTxId>:<status>`, with `unknown` when the body has no status. The body status is only a dedupe label.
-- The webhook body is never trusted for money. The worker verifies with `GET /v3/transactions/{id}/verify` and compares status, integer cents, currency, and tx ref before any ledger, payment, or subscription change.
-- Ignored webhooks log only top-level field names, `data` field names, and a short event label. Body values, headers, hashes, keys, and tokens are never logged.
+- `event_key` is `charge.completed:<providerTxId>:<status>`, with `unknown` when the body status is missing or is not a short letters-only string. The body status is only a dedupe label.
+- The webhook body is never trusted for money. `body.status`, `body.amount`, and `body.currency` never decide payment success. The worker verifies with `GET /v3/transactions/{id}/verify` and compares status, integer cents, currency, and `data.tx_ref` before any ledger, payment, or subscription change.
+- Ignored webhooks log only top-level field names, `data` field names, and a short event label. For the deployed legacy shape, `dataKeys` is empty. Body values, headers, hashes, keys, and tokens are never logged.
 
 ## Ledger and recovery
 
